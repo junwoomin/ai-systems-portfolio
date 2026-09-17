@@ -105,6 +105,7 @@ else:
 
 - [L1_SMALL Size Tuning Experiment](L1_SMALL_TUNING.md)
 - [Memory Transfer Measurements and Bottleneck Hypotheses](MEMORY_BOTTLENECK_EVIDENCE.md): 메모리 이동 실측, spill 비용 추정, 검증할 병목 가설
+- [P100a Bandwidth Benchmark](benchmarks/p100a-bandwidth/README.md): CPU, host↔device, L1↔DRAM 유효 대역폭 측정 코드
 - [TTML L1_SMALL Configuration Patch](../ttml-l1-small-config/README.md)
 
 ## 코드에 포함된 기타 설정
@@ -122,6 +123,13 @@ else:
 ```text
 ├── L1_SMALL_TUNING.md
 ├── MEMORY_BOTTLENECK_EVIDENCE.md
+├── benchmarks/
+│   └── p100a-bandwidth/
+│       ├── README.md
+│       ├── all_bandwidth.py
+│       ├── cpu_ddr4_bandwidth.py
+│       ├── host_device_bandwidth.py
+│       └── l1_dram_bandwidth.py
 └── src/
     ├── dataset.py
     ├── test_dataset.py
