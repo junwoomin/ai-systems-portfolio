@@ -118,13 +118,3 @@ python train_ttml.py
 ```
 
 `DATA_ROOT`, `WEIGHTS`, batch size와 epoch 수는 `train_ttml.py`에서 환경에 맞게 설정합니다.
-
-## 다음 검증
-
-- [ ] 기본 설정과 L1_SMALL 설정을 별도 commit/tag로 고정
-- [ ] 동일 조건에서 최소 100개 batch 측정
-- [ ] 평균, p50, p95 기록
-- [ ] 여러 실행의 분산 확인
-- [ ] full training step latency 별도 측정
-- [ ] TTNN profiler로 L1_SMALL 적용 전후 비교
-- [ ] 정확도와 loss가 적용 전후 동일한지 확인
