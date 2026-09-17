@@ -1,4 +1,4 @@
-                                                   
+
 
 import random
 import time
@@ -13,11 +13,11 @@ from dataset import classification_loaders
 from vgg_ttml import FrozenVGG11, VGGClassifier
 
 
-          
+
 DATA_ROOT = "~/datasets/oxford_pet"
 SAVE_DIR = Path("run/ttml")
-DOWNLOAD = False                       
-WEIGHTS = None                                                 
+DOWNLOAD = False
+WEIGHTS = None
 IMAGE_SIZE = 224
 BATCH_SIZE = 8
 EPOCHS = 10
@@ -26,11 +26,11 @@ HIDDEN_SIZE = 512
 NUM_CLASSES = 37
 SEED = 42
 DEVICE_ID = 0
-WARMUP_BATCHES = 10                         
+WARMUP_BATCHES = 10
 
 
 def run_epoch(backbone, classifier, loader, optimizer, context, training):
-                                            
+
     if training:
         classifier.train()
         context.set_gradient_mode(ttml.autograd.GradMode.ENABLED)
@@ -45,7 +45,7 @@ def run_epoch(backbone, classifier, loader, optimizer, context, training):
     model_time_sum = 0.0
 
     for step, (images, labels) in enumerate(loader, start=1):
-                                             
+
         targets = ttml.autograd.Tensor.from_numpy(
             labels.numpy().astype(np.uint32).reshape(1, -1),
             layout=ttnn.Layout.ROW_MAJOR,
@@ -54,15 +54,15 @@ def run_epoch(backbone, classifier, loader, optimizer, context, training):
         targets.set_requires_grad(False)
 
         if training:
-            optimizer.zero_grad()                  
+            optimizer.zero_grad()
 
-                                           
+
         if step > WARMUP_BATCHES:
             ttnn.synchronize_device(context.get_device())
             model_start = time.perf_counter()
 
-        features = backbone(images)                           
-        outputs = classifier(features)                    
+        features = backbone(images)
+        outputs = classifier(features)
 
         if step > WARMUP_BATCHES:
             ttnn.synchronize_device(context.get_device())
@@ -75,19 +75,19 @@ def run_epoch(backbone, classifier, loader, optimizer, context, training):
             raise FloatingPointError("loss가 유효한 숫자가 아닙니다.")
 
         if training:
-            loss.backward(False)                
-            optimizer.step()                  
+            loss.backward(False)
+            optimizer.step()
 
-                              
+
         scores = outputs.to_numpy(ttnn.DataType.FLOAT32)
         predictions = scores.reshape(len(labels), NUM_CLASSES).argmax(axis=1)
         correct += int((predictions == labels.numpy()).sum())
         loss_sum += loss_value * len(labels)
         sample_count += len(labels)
         running_accuracy = correct / sample_count
-        context.reset_graph()                     
+        context.reset_graph()
 
-                                               
+
         if step == WARMUP_BATCHES:
             ttnn.synchronize_device(context.get_device())
             print(f"배치 {step}/{len(loader)} | loss {loss_value:.4f} | "
@@ -114,7 +114,7 @@ def main():
     np.random.seed(SEED)
     torch.manual_seed(SEED)
 
-                 
+
     train_loader, val_loader, class_names = classification_loaders(
         DATA_ROOT, image_size=IMAGE_SIZE, batch_size=BATCH_SIZE,
         seed=SEED, download=DOWNLOAD,
@@ -122,16 +122,16 @@ def main():
     if set(class_names) != set(range(NUM_CLASSES)):
         raise ValueError("Oxford Pet 37개 품종 데이터가 필요합니다.")
 
-              
+
     context = ttml.autograd.AutoContext.get_instance()
     context.set_seed(SEED)
     context.open_device(
         device_ids=[DEVICE_ID],
-        l1_small_size=8 * 1024,                  
+        l1_small_size=48 * 1024,
     )
 
     try:
-                                                 
+
         backbone = FrozenVGG11(context.get_device(), IMAGE_SIZE, WEIGHTS)
         classifier = VGGClassifier(backbone.out_features, NUM_CLASSES, HIDDEN_SIZE)
         optimizer_config = ttml.optimizers.AdamWConfig.make(
@@ -144,7 +144,7 @@ def main():
         torch.save(backbone.state, SAVE_DIR / "backbone.pt")
         best_accuracy = -1.0
 
-                             
+
         ttnn.synchronize_device(context.get_device())
         total_start = time.perf_counter()
         for epoch in range(1, EPOCHS + 1):
@@ -179,7 +179,7 @@ def main():
         print(f"\n전체 소요 시간: {total_seconds / 60:.2f}분 "
               f"({total_seconds:.1f}초, 학습·검증·저장 포함 / 초기 준비 제외)")
     finally:
-                           
+
         context.reset_graph()
         context.close_device()
 
