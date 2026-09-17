@@ -4,10 +4,10 @@ Tenstorrent P100a에서 VGG11의 TTNN/TTML 순전파를 실행하고, TTML devic
 
 ## 측정 결과
 
-| 조건 | 순전파 latency |
-|---|---:|
-| 기본 설정 | 약 28 ms/batch |
-| L1_SMALL 적용 | 약 27 ms/batch |
+| 조건 | 순전파 latency | W (전력)|
+|---|---|---:|
+| 기본 설정 | 약 28 ms/batch | 약 61W |
+| L1_SMALL 적용 | 약 27 ms/batch | 약 61W |
 
 L1_SMALL 적용 후 약 1 ms, 비율로는 약 **3.6%** 감소했습니다.
 
