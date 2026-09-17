@@ -104,6 +104,7 @@ else:
 따라서 각 개선을 **L1 배치**, **prepared tensor 재사용**, **block height 자동 선택**으로 분리해 기록합니다. 다만 실험 세션과 다른 설정을 완전히 통제한 ablation은 추가 검증이 필요합니다.
 
 - [L1_SMALL Size Tuning Experiment](L1_SMALL_TUNING.md)
+- [Memory Transfer Measurements and Bottleneck Hypotheses](MEMORY_BOTTLENECK_EVIDENCE.md): 메모리 이동 실측, spill 비용 추정, 검증할 병목 가설
 - [TTML L1_SMALL Configuration Patch](../ttml-l1-small-config/README.md)
 
 ## 코드에 포함된 기타 설정
@@ -120,6 +121,7 @@ else:
 
 ```text
 ├── L1_SMALL_TUNING.md
+├── MEMORY_BOTTLENECK_EVIDENCE.md
 └── src/
     ├── dataset.py
     ├── test_dataset.py
