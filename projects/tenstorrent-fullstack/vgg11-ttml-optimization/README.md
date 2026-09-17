@@ -13,6 +13,12 @@ L1_SMALL 적용 후 약 1 ms, 비율로는 약 **3.6%** 감소했습니다.
 
 현재 확인된 최적화 효과는 **L1_SMALL 적용에 따른 28 ms → 27 ms 변화만**입니다. 다른 최적화 항목은 아직 개별 실험하지 않았으므로 성능 향상 원인으로 기록하지 않습니다.
 
+## 추가 실험
+
+- [L1_SMALL Size Tuning Experiment](L1_SMALL_TUNING.md): Conv2D/MaxPool configuration tensor 위치와 24/48/96 KiB 예약 크기 비교
+
+이 추가 실험은 별도 측정 세션이므로 위 28 ms → 27 ms 비교와 하나의 연속 결과처럼 합치지 않습니다.
+
 ## 측정 범위
 
 현재 `train_ttml.py`의 측정 구간:
@@ -90,12 +96,13 @@ ttnn.Conv2dConfig(
 ## 파일 구조
 
 ```text
-src/
-├── dataset.py
-├── test_dataset.py
-├── train_ttml.py
-├── vgg.py
-└── vgg_ttml.py
+├── L1_SMALL_TUNING.md
+└── src/
+    ├── dataset.py
+    ├── test_dataset.py
+    ├── train_ttml.py
+    ├── vgg.py
+    └── vgg_ttml.py
 ```
 
 - `dataset.py`: Oxford-IIIT Pet dataset과 DataLoader
