@@ -137,3 +137,9 @@ TTConv2d:
 - [ ] TTNN profiler로 weight preparation 호출과 DRAM transfer 비교
 - [ ] block height 0/16/32/64 ablation 및 실제 선택값 기록
 - [ ] 일반 L1과 L1_SMALL 사용량 기록
+
+## 메모리 이동 측정과의 구분
+
+이 문서의 `all-L1`은 Conv/Pool config tensor가 모두 L1_SMALL에 배치된다는 뜻입니다. 모든 activation의 L1 유지를 의미하지 않습니다. 35 → 28 ms를 activation spill 제거 효과로 해석하지 않습니다.
+
+[메모리 이동 측정 및 병목 가설](MEMORY_BOTTLENECK_EVIDENCE.md)에서 유효 대역폭과 activation 왕복 비용 추정, 레이어 경계 비교 계획을 확인할 수 있습니다.
