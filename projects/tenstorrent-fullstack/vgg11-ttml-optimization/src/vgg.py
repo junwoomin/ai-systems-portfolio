@@ -3,9 +3,9 @@ import torch
 import ttnn
 
 
-                                                              
-    
-                                                              
+
+
+
 
 BATCH_SIZE = 8
 IMAGE_SIZE = 112
@@ -13,9 +13,9 @@ NUM_CLASSES = 37
 DTYPE = ttnn.bfloat16
 
 
-                                                              
-                  
-                                                              
+
+
+
 class TTConv2d:
     def __init__(
         self,
@@ -69,26 +69,27 @@ class TTConv2d:
         self.conv_config = ttnn.Conv2dConfig(
             weights_dtype=DTYPE,
 
-                                                              
+
             config_tensors_in_dram=False,
 
             activation=ttnn.UnaryWithParam(
                 ttnn.UnaryOpType.RELU
             ),
 
-                
+
             act_block_h_override=32,
 
-                                 
+
             enable_act_double_buffer=False,
             enable_weights_double_buffer=True,
 
-                                               
+
             reshard_if_not_optimal=True,
 
-                                             
+
             output_layout=ttnn.ROW_MAJOR_LAYOUT,
         )
+        self.weights_prepared = False
 
     def __call__(
         self,
@@ -97,54 +98,43 @@ class TTConv2d:
         height,
         width,
     ):
-
-        result = ttnn.conv2d(
+        common_args = dict(
             input_tensor=x,
             weight_tensor=self.weight,
             bias_tensor=self.bias,
-
             device=self.device,
-
             in_channels=self.in_channels,
             out_channels=self.out_channels,
-
             batch_size=batch_size,
             input_height=height,
             input_width=width,
-
-            kernel_size=(
-                self.kernel_size,
-                self.kernel_size,
-            ),
-
-            stride=(
-                self.stride,
-                self.stride,
-            ),
-
-            padding=(
-                self.padding,
-                self.padding,
-            ),
-
+            kernel_size=(self.kernel_size, self.kernel_size),
+            stride=(self.stride, self.stride),
+            padding=(self.padding, self.padding),
             dilation=(1, 1),
             groups=1,
-
             dtype=DTYPE,
-
             conv_config=self.conv_config,
-
             return_output_dim=True,
         )
 
-        x, output_dim = result
+        if not self.weights_prepared:
+            x, output_dim, prepared = ttnn.conv2d(
+                **common_args,
+                return_weights_and_bias=True,
+            )
+            self.weight, self.bias = prepared
+            self.weights_prepared = True
+        else:
+            x, output_dim = ttnn.conv2d(
+                **common_args,
+                return_weights_and_bias=False,
+            )
 
-        out_h, out_w = output_dim
+        return x, output_dim[0], output_dim[1]
 
-        return x, out_h, out_w
-                                                              
-              
-                                                              
+
+
 
 def tt_max_pool(
     x,
@@ -171,10 +161,10 @@ def tt_max_pool(
 
         ceil_mode=False,
 
-                                                         
-        config_tensor_in_dram=True,
 
-                                     
+        config_tensor_in_dram=False,
+
+
         applied_shard_scheme=None,
 
         dtype=DTYPE,
@@ -185,12 +175,12 @@ def tt_max_pool(
     height = height // 2
     width = width // 2
 
-                                                             
-        
-     
-                                          
-                                          
-                                                             
+
+
+
+
+
+
 
     x = ttnn.to_memory_config(
         x,
@@ -199,9 +189,9 @@ def tt_max_pool(
 
     return x, height, width
 
-                                                              
-             
-                                                              
+
+
+
 
 class TTLinear:
     def __init__(
@@ -217,11 +207,11 @@ class TTLinear:
         self.device = device
         self.relu = relu
 
-                      
-         
-                         
-         
-                
+
+
+
+
+
 
         weight = torch.empty(
             in_features,
@@ -283,9 +273,9 @@ class TTVGG11:
         self.image_size = image_size
         self.num_classes = num_classes
 
-                                                              
-                           
-                                                              
+
+
+
 
         self.conv1 = TTConv2d(
             3,
@@ -335,9 +325,9 @@ class TTVGG11:
             device,
         )
 
-                                                              
-                         
-                                                              
+
+
+
 
         final_size = image_size
 
@@ -362,9 +352,9 @@ class TTVGG11:
             f"{flatten_size}"
         )
 
-                                                              
-                    
-                                                              
+
+
+
 
         self.fc1 = TTLinear(
             flatten_size,
@@ -387,9 +377,9 @@ class TTVGG11:
             relu=False,
         )
 
-                                                              
-             
-                                                              
+
+
+
 
     def __call__(
         self,
@@ -400,12 +390,12 @@ class TTVGG11:
         h = self.image_size
         w = self.image_size
 
-                                                              
-                 
-         
-                      
-              
-                                                              
+
+
+
+
+
+
 
         x, h, w = self.conv1(
             x,
@@ -432,12 +422,12 @@ class TTVGG11:
             f"{h} x {w} x 64"
         )
 
-                                                              
-                 
-         
-                        
-              
-                                                              
+
+
+
+
+
+
 
         x, h, w = self.conv2(
             x,
@@ -464,13 +454,13 @@ class TTVGG11:
             f"{h} x {w} x 128"
         )
 
-                                                              
-                 
-         
-                         
-                         
-              
-                                                              
+
+
+
+
+
+
+
 
         x, h, w = self.conv3(
             x,
@@ -504,13 +494,13 @@ class TTVGG11:
             f"{h} x {w} x 256"
         )
 
-                                                              
-                 
-         
-                         
-                         
-              
-                                                              
+
+
+
+
+
+
+
 
         x, h, w = self.conv5(
             x,
@@ -544,13 +534,13 @@ class TTVGG11:
             f"{h} x {w} x 512"
         )
 
-                                                              
-                 
-         
-                         
-                         
-              
-                                                              
+
+
+
+
+
+
+
 
         x, h, w = self.conv7(
             x,
@@ -584,15 +574,15 @@ class TTVGG11:
             f"{h} x {w} x 512"
         )
 
-                                                              
-                 
-         
-                                                    
-         
-                   
-         
-                       
-                                                              
+
+
+
+
+
+
+
+
+
 
         flatten_size = (
             h
@@ -610,7 +600,7 @@ class TTVGG11:
             ),
         )
 
-                                
+
         x = ttnn.to_layout(
             x,
             ttnn.TILE_LAYOUT,
@@ -621,9 +611,9 @@ class TTVGG11:
             f"{batch_size} x {flatten_size}"
         )
 
-                                                              
-                    
-                                                              
+
+
+
 
         x = self.fc1(x)
 
