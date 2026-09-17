@@ -1,26 +1,29 @@
-# Tenstorrent P100a — TTML / tt-train Build Setup
+# Tenstorrent P100a — TTML / tt-train Setup
 
-P100a에서 TTNN 기반 학습을 수행하기 위해 `tt-metal`의 `tt-train / TTML`을 소스 빌드한 과정과 오류 해결 기록입니다.
+P100a에서 TTNN 기반 학습을 진행하기 위해 별도의 `ttml` Conda 환경을 만들고, `tt-metal`의 TTML / tt-train을 소스 빌드한 과정입니다.
 
-## 환경
-
-```text
-OS        : Ubuntu
-Device    : Tenstorrent P100a
-Arch      : Blackhole
-Python    : 3.12
-Conda env : tt
-```
-
-기존 Conda 환경을 그대로 사용했습니다.
+## 1. Conda 환경 생성
 
 ```bash
-conda activate tt
+conda create -n ttml python=3.12 -y
+conda activate ttml
+
+python --version
+which python
+```
+
+정상 출력:
+
+```text
+Python 3.12.x
+/home/woo/anaconda3/envs/ttml/bin/python
 ```
 
 ---
 
-## 1. tt-metal 다운로드
+## 2. tt-metal clone
+
+처음 설치하는 경우:
 
 ```bash
 cd ~
@@ -31,7 +34,7 @@ git clone https://github.com/tenstorrent/tt-metal.git \
 cd ~/tt-metal
 ```
 
-이미 clone되어 있다면 다음과 같이 갱신합니다.
+이미 clone했다면:
 
 ```bash
 cd ~/tt-metal
@@ -43,272 +46,268 @@ git submodule update \
     --recursive
 ```
 
+`tt-train`도 `tt-metal` 소스 트리 안에서 함께 관리됩니다.
+
 ---
 
-## 2. CMake 버전 문제 해결
+## 3. 시스템 의존성 설치
 
-처음 빌드할 때 다음 오류가 발생했습니다.
-
-```text
-CMake 3.24 or higher is required.
-You are running version 3.22.1
-```
-
-Conda 환경 내부의 CMake와 Ninja를 설치했습니다.
+처음 한 번만 실행합니다.
 
 ```bash
-conda activate tt
-conda install -c conda-forge "cmake>=3.24" ninja -y
+cd ~/tt-metal
+
+sudo ./install_dependencies.sh
 ```
+
+이 스크립트가 CMake와 Clang 등 `tt-metal` 빌드에 필요한 시스템 의존성을 준비합니다.
 
 확인:
 
 ```bash
-which cmake
 cmake --version
-```
-
-Conda 환경의 CMake가 잡혀야 합니다.
-
-```text
-/home/woo/anaconda3/envs/tt/bin/cmake
-```
-
----
-
-## 3. Clang 20 설치
-
-다음 빌드에서는 아래 오류가 발생했습니다.
-
-```text
-The CMAKE_C_COMPILER:
-
-    clang-20
-
-was not found in the PATH.
-
-The CMAKE_CXX_COMPILER:
-
-    clang++-20
-
-was not found in the PATH.
-```
-
-`tt-metal` dependency 설치 스크립트를 실행했습니다.
-
-```bash
-cd ~/tt-metal
-sudo ./install_dependencies.sh
-```
-
-설치 후 확인:
-
-```bash
-which clang-20
-which clang++-20
 
 clang-20 --version
 clang++-20 --version
 ```
 
-정상적으로 설치되면 다음과 같은 경로가 출력됩니다.
-
-```text
-/usr/bin/clang-20
-/usr/bin/clang++-20
-```
+최소 CMake 요구 버전을 충족하지 못하거나 `clang-20`이 없다면 이 단계에서 해결해야 합니다.
 
 ---
 
-## 4. 이전 CMake build 정리
-
-CMake 또는 compiler 구성을 변경했으므로 이전 build cache를 제거했습니다.
-
-> 아래 명령은 기존 `build_Release` 결과를 삭제합니다.
+## 4. Conda 환경에 Python 의존성 설치
 
 ```bash
+conda activate ttml
 cd ~/tt-metal
-rm -rf build_Release
+
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -e .
 ```
+
+`tt-metal`의 `pyproject.toml`에서 Python 패키지는 `ttnn`으로 정의되어 있습니다. 이 명령으로 현재 source tree의 TTNN Python 패키지를 사용합니다.
+
+확인:
+
+```bash
+python -c "import ttnn; print(ttnn.__file__)"
+```
+
+최종적으로 다음 계열의 경로가 출력돼야 합니다.
+
+```text
+/home/woo/tt-metal/ttnn/ttnn/__init__.py
+```
+
+> `pjrt_plugin_tt/...`가 출력되면 안 됩니다.
 
 ---
 
 ## 5. TTML / tt-train 빌드
 
-TTNN뿐 아니라 training stack까지 빌드하기 위해 다음 명령을 사용했습니다.
+반드시 `ttml` 환경에서 실행합니다.
 
 ```bash
-cd ~/tt-metal
-./build_metal.sh -b Release --build-tt-train
-```
+conda activate ttml
 
-빌드 설정에서 Conda Python이 정상적으로 선택되었습니다.
-
-```text
-Python3_EXECUTABLE=/home/woo/anaconda3/envs/tt/bin/python3
-Python3_INCLUDE_DIR=/home/woo/anaconda3/envs/tt/include/python3.12
-Python3_LIBRARY=/home/woo/anaconda3/envs/tt/lib/libpython3.12.so
-```
-
-따라서 `tt` Conda 환경의 Python 3.12를 기준으로 Python binding이 빌드됩니다.
-
----
-
-## 6. emsdk 다운로드 오류 해결
-
-빌드 중 다음 오류가 한 번 발생했습니다.
-
-```text
-xz: (stdin): Unexpected end of input
-tar: Unexpected EOF in archive
-tar: Error is not recoverable
-emsdk install failed
-```
-
-깨진 파일은 다음 CPM cache 내부의 Emscripten archive였습니다.
-
-```text
-~/tt-metal/.cpmcache/emsdk/...
-```
-
-다운로드가 중단되어 archive가 손상된 경우, emsdk cache만 제거합니다.
-
-> 아래 명령은 다운로드된 emsdk cache를 삭제하며 다음 빌드에서 다시 내려받습니다.
-
-```bash
-cd ~/tt-metal
-rm -rf .cpmcache/emsdk
-```
-
-필요하면 build directory도 함께 정리합니다.
-
-```bash
-rm -rf build_Release
-```
-
-그 후 다시 빌드합니다.
-
-```bash
-./build_metal.sh -b Release --build-tt-train
-```
-
-이 환경에서는 동일한 빌드 명령을 다시 실행한 뒤 정상적으로 진행됐습니다.
-
----
-
-## 최종 명령 순서
-
-처음 설치할 때의 전체 순서입니다.
-
-```bash
-# Conda
-conda activate tt
-
-# CMake / Ninja
-conda install -c conda-forge "cmake>=3.24" ninja -y
-
-# tt-metal
-cd ~
-git clone https://github.com/tenstorrent/tt-metal.git \
-    --recurse-submodules
 cd ~/tt-metal
 
-# System dependencies / clang-20
-sudo ./install_dependencies.sh
-
-# 확인
-cmake --version
-clang-20 --version
-clang++-20 --version
-python --version
-
-# Build cache 초기화
 rm -rf build_Release
 
-# TTNN + TTML / tt-train build
-./build_metal.sh -b Release --build-tt-train
+./build_metal.sh \
+    -b Release \
+    --build-tt-train
+```
+
+> `rm -rf build_Release`는 기존 Release build 결과를 삭제합니다.
+
+완료되면 현재 브랜치에서는 다음 경로를 확인합니다.
+
+```bash
+ls ~/tt-metal/build_Release/ttml/
+```
+
+다음 파일이 있어야 합니다.
+
+```text
+_ttml.abi3.so
 ```
 
 ---
 
-## 문제 해결 요약
+## 6. TTML Python 경로 등록
 
-### CMake가 너무 오래된 경우
-
-```text
-CMake 3.24 or higher is required
-```
+먼저 현재 Conda environment의 `site-packages` 경로를 구합니다.
 
 ```bash
-conda install -c conda-forge "cmake>=3.24" ninja -y
+SITE_PACKAGES=$(python -c \
+'import site; print(site.getsitepackages()[0])')
+
+echo "$SITE_PACKAGES"
 ```
 
-### clang-20을 찾지 못하는 경우
+예상 경로:
 
 ```text
-clang-20 was not found in PATH
+/home/woo/anaconda3/envs/ttml/lib/python3.12/site-packages
 ```
+
+TTML Python source와 빌드된 `_ttml` extension 경로를 `.pth` 파일로 등록합니다.
 
 ```bash
-sudo ./install_dependencies.sh
+echo "$HOME/tt-metal/tt-train/sources/ttml" \
+    > "$SITE_PACKAGES/ttml.pth"
 
-which clang-20
-which clang++-20
+echo "$HOME/tt-metal/build_Release/ttml" \
+    > "$SITE_PACKAGES/_ttml.pth"
 ```
 
-### emsdk 압축 파일이 깨진 경우
+공식 `create_venv.sh`도 TTML Python source와 빌드된 `_ttml` extension을 `.pth`로 Python 환경에 추가하는 방식을 사용합니다.
+
+확인:
+
+```bash
+cat "$SITE_PACKAGES/ttml.pth"
+cat "$SITE_PACKAGES/_ttml.pth"
+```
+
+출력:
 
 ```text
-xz: Unexpected end of input
-tar: Unexpected EOF
-```
-
-```bash
-cd ~/tt-metal
-rm -rf .cpmcache/emsdk
-./build_metal.sh -b Release --build-tt-train
+/home/woo/tt-metal/tt-train/sources/ttml
+/home/woo/tt-metal/build_Release/ttml
 ```
 
 ---
 
-## 전체 스택
+## 7. 런타임 환경 변수
 
-이번 빌드의 목적은 기존 TT-XLA 경로가 아니라 TTML을 이용해 P100a에서 training stack을 직접 다루는 것입니다.
+```bash
+export TT_METAL_HOME="$HOME/tt-metal"
 
-```text
-Application / Model
-        ↓
-TTML / tt-train
-        ↓
-Autograd / Optimizer
-        ↓
-TTNN
-        ↓
-TT-Metal
-        ↓
-P100a (Blackhole)
+export TT_METAL_RUNTIME_ROOT="$HOME/tt-metal"
+
+export LD_LIBRARY_PATH="$HOME/tt-metal/build_Release/lib:${LD_LIBRARY_PATH:-}"
 ```
 
-TT-XLA 경로와는 구분합니다.
+이 `LD_LIBRARY_PATH`가 없으면 다음과 같은 오류가 발생할 수 있습니다.
 
 ```text
-PyTorch
-   ↓
-Torch-XLA
-   ↓
-StableHLO
-   ↓
-TT-MLIR
-   ↓
-TTNN / TT-Metal
-   ↓
-P100a
+libtracy.so.0.14.1: cannot open shared object file
+```
+
+---
+
+## 8. import 검증
+
+```bash
+python - <<'PY'
+import sys
+import ttnn
+import _ttml
+import ttml
+
+print("Python :", sys.executable)
+print("TTNN   :", ttnn.__file__)
+print("_TTML  :", _ttml.__file__)
+print("TTML   :", ttml.__file__)
+print()
+print("TTNN + TTML OK")
+PY
+```
+
+목표 출력:
+
+```text
+Python : /home/woo/anaconda3/envs/ttml/bin/python
+TTNN   : /home/woo/tt-metal/ttnn/ttnn/__init__.py
+_TTML  : /home/woo/tt-metal/build_Release/ttml/_ttml.abi3.so
+TTML   : /home/woo/tt-metal/tt-train/sources/ttml/ttml/__init__.py
+
+TTNN + TTML OK
+```
+
+---
+
+## 9. `ttml` 명령 하나로 환경 활성화
+
+`~/.bashrc`를 엽니다.
+
+```bash
+nano ~/.bashrc
+```
+
+맨 아래에 다음 alias를 추가합니다.
+
+```bash
+alias ttml='conda activate ttml && SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])") && echo "$HOME/tt-metal/tt-train/sources/ttml" > "$SITE_PACKAGES/ttml.pth" && echo "$HOME/tt-metal/build_Release/ttml" > "$SITE_PACKAGES/_ttml.pth" && unset PYTHONPATH && export TT_METAL_HOME="$HOME/tt-metal" && export TT_METAL_RUNTIME_ROOT="$HOME/tt-metal" && export LD_LIBRARY_PATH="$HOME/tt-metal/build_Release/lib:${LD_LIBRARY_PATH:-}"'
+```
+
+저장 후 설정을 다시 불러옵니다.
+
+```bash
+source ~/.bashrc
+```
+
+이제 어느 터미널에서든 다음 명령으로 환경을 활성화합니다.
+
+```bash
+ttml
+```
+
+```text
+(base)
+  ↓
+ttml
+  ↓
+(ttml)
+```
+
+동시에 다음 항목이 설정됩니다.
+
+- TTML source path
+- `_ttml.so` path
+- `TT_METAL_HOME`
+- `TT_METAL_RUNTIME_ROOT`
+- `LD_LIBRARY_PATH`
+
+확인:
+
+```bash
+ttml
+
+python -c \
+'import ttnn, ttml, _ttml; print("TTML READY")'
+```
+
+## 최종 구조
+
+```text
+~/tt-metal/
+│
+├── ttnn/
+│   └── ttnn/
+│       └── Python TTNN
+│
+├── tt-train/
+│   └── sources/
+│       └── ttml/
+│           └── Python TTML
+│
+└── build_Release/
+    ├── lib/
+    │   ├── libtt_metal.so
+    │   ├── libtracy.so...
+    │   └── ...
+    │
+    └── ttml/
+        └── _ttml.abi3.so
 ```
 
 ## 다음 단계
 
-- [ ] TTML 최소 training example 검증
-- [ ] forward/backward 및 optimizer 동작 확인
-- [ ] loss 감소 여부 확인
+- [ ] TTML 최소 training example 실행
+- [ ] forward/backward 및 optimizer 검증
+- [ ] loss 감소 확인
 - [ ] VGG11 training으로 확장
-- [ ] batch latency, throughput, memory 및 정확도 기록
+- [ ] training latency, throughput, memory 및 정확도 기록
