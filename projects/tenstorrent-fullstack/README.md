@@ -7,6 +7,7 @@ P100a에서 모델 실행과 학습을 검증하고, compiler·runtime·operator
 | 프로젝트 | 경로 | 상태 |
 |---|---|---|
 | P100a TTML / tt-train 소스 빌드 | [ttml-tt-train-build](ttml-tt-train-build/README.md) | 빌드 과정 기록 완료 |
+| P100a TTML L1_SMALL 설정 패치 | [ttml-l1-small-config](ttml-l1-small-config/README.md) | 소스 수정 및 실험 구성 완료 |
 | TTML 최소 학습 예제 | 추가 예정 | 진행 예정 |
 | VGG11 TTNN/TTML Training | 추가 예정 | 진행 예정 |
 | TT-XLA 실행 경로 분석 | 추가 예정 | 진행 예정 |
