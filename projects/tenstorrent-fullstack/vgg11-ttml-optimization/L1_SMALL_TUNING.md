@@ -26,9 +26,10 @@ config_tensor_in_dram = False
 | 24 KiB | DRAM | L1_SMALL | 미적용 | 약 28 ms |
 | 48 KiB | L1_SMALL | L1_SMALL | 미적용 | 약 28 ms |
 | 96 KiB | L1_SMALL | L1_SMALL | 미적용 | 약 29 ms |
-| 48 KiB | L1_SMALL | L1_SMALL | 적용 | **약 21 ms** |
+| 48 KiB | L1_SMALL | L1_SMALL | 적용, block height 32 강제 | 약 21 ms |
+| 48 KiB | L1_SMALL | L1_SMALL | 적용, block height 자동 선택 (`0`) | **약 18 ms** |
 
-마지막 행은 prepared weight/bias 재사용을 추가한 최신 측정입니다. 앞의 L1_SMALL 크기 비교와 최적화 조건이 다르므로 동일한 ablation으로 해석하면 안 됩니다.
+21 ms 행은 prepared weight/bias 재사용을 추가한 결과이며, 마지막 행은 `act_block_h_override`를 32에서 0으로 바꾼 최신 측정입니다. 앞의 L1_SMALL 크기 비교와 최적화 조건이 다르므로 하나의 L1 크기 ablation으로 해석하면 안 됩니다.
 
 ## L1_SMALL 크기 관찰
 
@@ -83,7 +84,17 @@ else:
 48 KiB + all-L1 + cache 적용   → 약 21 ms
 ```
 
-관측값 기준 약 **25% 감소**입니다. 다만 첫 호출에는 준비 비용이 남아 있으므로 21 ms는 warm-up 이후 steady-state 순전파 결과로 기록합니다.
+prepared tensor 재사용으로 28 ms → 21 ms, 약 **25% 감소**했습니다. 이후 `act_block_h_override=0`에서 21 ms → 18 ms, 약 **14.3% 추가 감소**했습니다. 첫 호출에는 준비 비용이 남아 있으므로 두 값 모두 warm-up 이후 steady-state 순전파 결과로 기록합니다.
+
+## Activation block height 자동 선택
+
+기존에는 `act_block_h_override=32`로 activation block height를 강제했습니다. 이를 0으로 변경하면 TTNN이 workload와 sharding 조건에 맞는 값을 자동 선택합니다.
+
+```python
+act_block_h_override = 0
+```
+
+현재 관측에서는 강제값 32보다 자동 선택이 빨랐습니다. 실제로 선택된 block height와 개선 원인은 profiler 및 program configuration을 통해 추가 확인해야 합니다.
 
 ## Current Best Configuration
 
@@ -97,20 +108,22 @@ MaxPool2D:
     config_tensor_in_dram = False
 
 TTConv2d:
+    act_block_h_override = 0
     prepare weights and bias once
     reuse prepared tensors after the first call
 ```
 
-현재 최저 관측값은 약 **21 ms/batch**입니다.
+현재 최저 관측값은 약 **18 ms/batch**입니다.
 
 ## Interpretation
 
-최신 결과는 두 병목 후보를 구분합니다.
+최신 결과는 세 병목 후보를 구분합니다.
 
 1. L1_SMALL이 너무 작으면 configuration tensor allocation pressure가 발생할 수 있습니다.
 2. L1_SMALL이 충분해도 매 호출마다 weight/bias를 다시 준비하면 반복 비용이 남을 수 있습니다.
+3. 고정된 activation block height가 현재 shape와 sharding에 최적이 아닐 수 있습니다.
 
-48 KiB는 all-L1 구성에 필요한 공간을 제공했고, prepared tensor 캐시는 반복 준비 비용을 제거했습니다. 다만 profiler 없이 7 ms 전체를 특정 내부 단계에 귀속할 수는 없습니다.
+48 KiB는 all-L1 구성에 필요한 공간을 제공했고, prepared tensor 캐시는 반복 준비 비용을 줄였습니다. block height 자동 선택은 추가로 3 ms를 줄였습니다. 다만 profiler 없이 내부 원인을 확정할 수는 없습니다.
 
 ## 추가 검증
 
@@ -122,4 +135,5 @@ TTConv2d:
 - [ ] program cache와 compile warm-up 조건 통일
 - [ ] cache 적용 전후 출력 수치와 정확도 비교
 - [ ] TTNN profiler로 weight preparation 호출과 DRAM transfer 비교
+- [ ] block height 0/16/32/64 ablation 및 실제 선택값 기록
 - [ ] 일반 L1과 L1_SMALL 사용량 기록
