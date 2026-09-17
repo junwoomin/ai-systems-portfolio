@@ -8,11 +8,12 @@ Tenstorrent P100a에서 VGG11의 TTNN/TTML 순전파 병목을 분석하고, L1_
 |---|---|---:|
 | Baseline | 기본 설정 | 약 28 ms/batch |
 | 초기 L1_SMALL 실험 | L1_SMALL 적용 | 약 27 ms/batch |
-| 현재 최적 구성 | 48 KiB, Conv/Pool config L1, prepared weight/bias 재사용 | 약 21 ms/batch |
+| Prepared tensor 재사용 | 48 KiB, Conv/Pool config L1, prepared weight/bias 재사용, block height 32 강제 | 약 21 ms/batch |
+| 현재 최적 구성 | 위 조건에서 `act_block_h_override=0` | **약 18 ms/batch** |
 
-현재 최적 구성은 baseline 대비 약 **25%**, 초기 L1_SMALL 결과 대비 약 **22.2%** 감소했습니다.
+현재 최적 구성은 baseline 대비 약 **35.7%**, 21 ms 구성 대비 약 **14.3%** 감소했습니다.
 
-21 ms는 충분한 warm-up 이후의 관측값입니다. 각 Conv2D의 첫 호출에서는 weight와 bias 준비 비용이 발생하며, 이후 호출부터 준비된 tensor를 재사용합니다.
+18 ms는 충분한 warm-up 이후의 관측값입니다. 각 Conv2D의 첫 호출에서는 weight와 bias 준비 비용이 발생하며, 이후 호출부터 준비된 tensor를 재사용합니다.
 
 ## 측정 범위
 
@@ -25,7 +26,7 @@ synchronize
   → synchronize
 ```
 
-따라서 21 ms는 다음 항목을 제외한 **모델 순전파 시간**입니다.
+따라서 18 ms는 다음 항목을 제외한 **모델 순전파 시간**입니다.
 
 - dataset loading 및 host preprocessing
 - cross-entropy loss
@@ -67,6 +68,7 @@ Conv2D와 MaxPool2D configuration tensor를 모두 L1_SMALL에 배치합니다.
 ```python
 ttnn.Conv2dConfig(
     config_tensors_in_dram=False,
+    act_block_h_override=0,
 )
 
 ttnn.max_pool2d(
@@ -93,20 +95,21 @@ else:
 
 이 구조는 첫 호출 이후 매 순전파에서 weight와 bias 준비를 반복하지 않도록 합니다.
 
+`act_block_h_override=0`으로 block height 강제를 해제합니다. 여기서 0은 높이가 0인 block을 뜻하는 것이 아니라 TTNN의 자동 선택 경로를 사용한다는 의미입니다.
+
 ## 실험 해석
 
-48 KiB와 두 config tensor의 L1 배치만 적용한 별도 실험에서는 약 28 ms가 관측됐습니다. 같은 메모리 구성에서 prepared weight/bias 재사용을 추가한 현재 결과는 약 21 ms입니다.
+48 KiB와 두 config tensor의 L1 배치만 적용한 별도 실험에서는 약 28 ms가 관측됐습니다. prepared weight/bias 재사용과 block height 32 강제 조건에서는 약 21 ms였고, `act_block_h_override=0`으로 자동 선택을 사용하자 약 18 ms가 관측됐습니다.
 
-따라서 최신 28 ms → 21 ms 변화는 단순히 L1_SMALL 크기만의 효과로 기록하지 않습니다. 현재 증거는 **L1 배치와 반복 준비 비용 제거를 함께 적용한 구성**의 결과이며, 각 요인의 독립 효과는 추가 ablation으로 검증해야 합니다.
+따라서 각 개선을 **L1 배치**, **prepared tensor 재사용**, **block height 자동 선택**으로 분리해 기록합니다. 다만 실험 세션과 다른 설정을 완전히 통제한 ablation은 추가 검증이 필요합니다.
 
 - [L1_SMALL Size Tuning Experiment](L1_SMALL_TUNING.md)
 - [TTML L1_SMALL Configuration Patch](../ttml-l1-small-config/README.md)
 
 ## 코드에 포함된 기타 설정
 
-현재 코드에는 다음 설정도 포함되어 있지만, 각각의 성능 효과는 아직 분리 측정하지 않았습니다.
+현재 코드에는 다음 설정도 포함되어 있지만, 각각의 성능 효과는 아직 분리 측정하지 않았습니다. `act_block_h_override=0`의 21 ms → 18 ms 변화는 별도 단계로 기록했습니다.
 
-- `act_block_h_override=32`
 - `enable_act_double_buffer=False`
 - `enable_weights_double_buffer=True`
 - `reshard_if_not_optimal=True`
