@@ -1,6 +1,6 @@
 # L1_SMALL Size Tuning Experiment
 
-TT-NN의 `Conv2D`와 `MaxPool2D`에서 configuration tensor의 저장 위치와 `l1_small_size`가 VGG11 순전파 latency에 미치는 영향을 확인한 실험입니다.
+TT-NN의 `Conv2D`와 `MaxPool2D`에서 configuration tensor 저장 위치, `l1_small_size`, prepared weight/bias 재사용이 VGG11 순전파 latency에 미치는 영향을 확인한 실험입니다.
 
 ## Configuration
 
@@ -20,107 +20,72 @@ config_tensor_in_dram = False
 
 ## Results
 
-| `l1_small_size` | Conv2D config | MaxPool config | Latency |
-|---:|---|---|---:|
-| 24 KiB | L1_SMALL | L1_SMALL | 약 35 ms |
-| 24 KiB | DRAM | L1_SMALL | 약 28 ms |
-| 48 KiB | L1_SMALL | L1_SMALL | 약 28 ms |
-| 96 KiB | L1_SMALL | L1_SMALL | 약 29 ms |
+| `l1_small_size` | Conv2D config | MaxPool config | Prepared weight/bias cache | Latency |
+|---:|---|---|---|---:|
+| 24 KiB | L1_SMALL | L1_SMALL | 미적용 | 약 35 ms |
+| 24 KiB | DRAM | L1_SMALL | 미적용 | 약 28 ms |
+| 48 KiB | L1_SMALL | L1_SMALL | 미적용 | 약 28 ms |
+| 96 KiB | L1_SMALL | L1_SMALL | 미적용 | 약 29 ms |
+| 48 KiB | L1_SMALL | L1_SMALL | 적용 | **약 21 ms** |
 
-## Observations
+마지막 행은 prepared weight/bias 재사용을 추가한 최신 측정입니다. 앞의 L1_SMALL 크기 비교와 최적화 조건이 다르므로 동일한 ablation으로 해석하면 안 됩니다.
 
-### 24 KiB에서 두 configuration tensor를 모두 L1_SMALL에 배치
+## L1_SMALL 크기 관찰
 
-```text
-L1_SMALL : 24 KiB
-Conv2D   : L1_SMALL
-MaxPool  : L1_SMALL
-Latency  : 약 35 ms
-```
+24 KiB에서 두 configuration tensor를 모두 L1_SMALL에 배치하면 약 35 ms였습니다. 같은 크기에서 Conv2D configuration tensor를 DRAM으로 이동하면 약 28 ms로 감소했습니다.
 
-이 조건은 이번 실험에서 가장 느렸습니다.
+이는 DRAM이 L1_SMALL보다 빠르다는 뜻이 아니라, 24 KiB에 두 종류의 configuration tensor를 동시에 배치했을 때 allocation pressure, placement 변화 또는 다른 실행 계획이 영향을 주었을 가능성을 보여줍니다.
 
-### 24 KiB에서 Conv2D configuration tensor만 DRAM에 배치
-
-```text
-L1_SMALL : 24 KiB
-Conv2D   : DRAM
-MaxPool  : L1_SMALL
-Latency  : 약 28 ms
-```
-
-같은 24 KiB 예약 크기에서 Conv2D configuration tensor를 DRAM으로 이동하자 약 7 ms 감소했습니다.
-
-이 결과만으로 DRAM이 L1_SMALL보다 빠르다고 결론 내릴 수는 없습니다. 두 종류의 configuration tensor를 24 KiB L1_SMALL에 동시에 배치했을 때 발생한 allocation pressure, placement 변화 또는 다른 실행 계획의 영향을 우선 의심할 수 있습니다.
-
-### 48 KiB에서 두 configuration tensor를 모두 L1_SMALL에 배치
-
-```text
-L1_SMALL : 48 KiB
-Conv2D   : L1_SMALL
-MaxPool  : L1_SMALL
-Latency  : 약 28 ms
-```
-
-L1_SMALL을 48 KiB로 늘리자 두 configuration tensor를 모두 L1_SMALL에 둔 상태에서도 약 28 ms로 회복했습니다. 이는 24 KiB 조건에서 L1_SMALL 용량 또는 allocation pressure가 영향을 주었을 가능성과 일치합니다.
-
-### 96 KiB에서 두 configuration tensor를 모두 L1_SMALL에 배치
-
-```text
-L1_SMALL : 96 KiB
-Conv2D   : L1_SMALL
-MaxPool  : L1_SMALL
-Latency  : 약 29 ms
-```
-
-48 KiB보다 예약 영역을 더 늘렸지만 추가 개선은 없었고 약 1 ms 느려졌습니다.
+두 configuration tensor를 모두 L1_SMALL에 둔 상태에서 예약 크기를 48 KiB로 늘리면 약 28 ms로 회복했습니다. 96 KiB에서는 약 29 ms로 추가 개선이 없었습니다.
 
 가능한 가설:
 
-- 일반 L1에서 Circular Buffer, activation 및 runtime working buffer가 사용할 공간 감소
-- 다른 tiling 또는 buffer placement 선택
-- 단순 측정 변동
+- 24 KiB는 현재 workload의 configuration tensor에 부족함
+- 48 KiB는 configuration tensor를 수용하면서 일반 L1 공간도 유지함
+- 96 KiB는 Circular Buffer, activation 및 runtime working buffer용 일반 L1을 줄일 수 있음
+- 48 KiB와 96 KiB의 1 ms 차이는 측정 변동일 수 있음
 
-현재 데이터만으로 세 원인을 구분할 수는 없습니다.
+## Prepared weight/bias 재사용
 
-## Interpretation
+최신 코드는 각 `TTConv2d` 인스턴스가 첫 호출에서 TTNN이 준비한 weight와 bias를 저장합니다.
 
-관찰된 trade-off는 다음과 같이 정리할 수 있습니다.
-
-```text
-L1_SMALL이 부족한 조건
-    ↓
-configuration tensor allocation pressure 가능성
-    ↓
-latency 증가
-
-L1_SMALL이 충분한 조건
-    ↓
-configuration tensor를 local memory에 유지
-    ↓
-latency 회복
-
-L1_SMALL을 과도하게 예약한 조건
-    ↓
-일반 L1 working space 감소 가능성
-    ↓
-추가 개선 없음 또는 소폭 악화
+```python
+if not self.weights_prepared:
+    x, output_dim, prepared = ttnn.conv2d(
+        **common_args,
+        return_weights_and_bias=True,
+    )
+    self.weight, self.bias = prepared
+    self.weights_prepared = True
+else:
+    x, output_dim = ttnn.conv2d(
+        **common_args,
+        return_weights_and_bias=False,
+    )
 ```
 
-단, 이는 현재 결과를 설명하는 **가설**이며 profiler와 반복 측정으로 검증해야 합니다.
-
-## Conclusion
-
-전체 조건의 최저 관측값은 약 28 ms이며 다음 두 구성이 같은 수준을 기록했습니다.
+실행 흐름:
 
 ```text
-24 KiB + Conv2D DRAM + MaxPool L1_SMALL → 약 28 ms
-48 KiB + Conv2D L1_SMALL + MaxPool L1_SMALL → 약 28 ms
+첫 호출
+  → weight/bias 준비
+  → prepared tensor 저장
+
+이후 호출
+  → 저장된 prepared tensor 재사용
+  → 반복 준비 단계 생략
 ```
 
-따라서 48 KiB가 유일한 최적값이라고 단정할 수는 없습니다. 다만 **Conv2D와 MaxPool configuration tensor를 모두 L1_SMALL에 배치하는 조건 중에서는 48 KiB가 가장 좋은 관측 결과**였습니다.
+48 KiB에서 Conv2D와 MaxPool config를 모두 L1_SMALL에 둔 조건은 캐시 적용 전 약 28 ms, 적용 후 약 21 ms였습니다.
 
-현재 all-L1 후보 설정:
+```text
+48 KiB + all-L1 + cache 미적용 → 약 28 ms
+48 KiB + all-L1 + cache 적용   → 약 21 ms
+```
+
+관측값 기준 약 **25% 감소**입니다. 다만 첫 호출에는 준비 비용이 남아 있으므로 21 ms는 warm-up 이후 steady-state 순전파 결과로 기록합니다.
+
+## Current Best Configuration
 
 ```python
 l1_small_size = 48 * 1024
@@ -130,17 +95,31 @@ Conv2D:
 
 MaxPool2D:
     config_tensor_in_dram = False
+
+TTConv2d:
+    prepare weights and bias once
+    reuse prepared tensors after the first call
 ```
 
-48 KiB와 96 KiB의 1 ms 차이는 측정 변동일 수 있으므로 충분한 warm-up 이후 여러 번 반복해 평균과 p50/p95를 비교해야 합니다.
+현재 최저 관측값은 약 **21 ms/batch**입니다.
+
+## Interpretation
+
+최신 결과는 두 병목 후보를 구분합니다.
+
+1. L1_SMALL이 너무 작으면 configuration tensor allocation pressure가 발생할 수 있습니다.
+2. L1_SMALL이 충분해도 매 호출마다 weight/bias를 다시 준비하면 반복 비용이 남을 수 있습니다.
+
+48 KiB는 all-L1 구성에 필요한 공간을 제공했고, prepared tensor 캐시는 반복 준비 비용을 제거했습니다. 다만 profiler 없이 7 ms 전체를 특정 내부 단계에 귀속할 수는 없습니다.
 
 ## 추가 검증
 
+- [ ] 첫 호출 latency와 steady-state latency를 분리 기록
 - [ ] 각 조건을 별도 process에서 반복 실행
 - [ ] 동일한 software/firmware commit 사용
 - [ ] 최소 100개 batch 측정
 - [ ] 평균, p50, p95 및 표준편차 기록
 - [ ] program cache와 compile warm-up 조건 통일
-- [ ] TTNN profiler로 allocator, reshard 및 DRAM transfer 비교
-- [ ] 정확도와 출력 수치 일치 확인
+- [ ] cache 적용 전후 출력 수치와 정확도 비교
+- [ ] TTNN profiler로 weight preparation 호출과 DRAM transfer 비교
 - [ ] 일반 L1과 L1_SMALL 사용량 기록
