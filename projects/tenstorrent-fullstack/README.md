@@ -1,31 +1,59 @@
 # Tenstorrent Full Stack
 
-## 목표
+P100a에서 모델 실행과 학습을 검증하고, compiler·runtime·operator·kernel 계층까지 추적하는 프로젝트입니다.
 
-하나의 대표 모델을 다음 실행 경로 전체에서 추적합니다.
+## 프로젝트
+
+| 프로젝트 | 경로 | 상태 |
+|---|---|---|
+| P100a TTML / tt-train 소스 빌드 | [ttml-tt-train-build](ttml-tt-train-build/README.md) | 빌드 과정 기록 완료 |
+| TTML 최소 학습 예제 | 추가 예정 | 진행 예정 |
+| VGG11 TTNN/TTML Training | 추가 예정 | 진행 예정 |
+| TT-XLA 실행 경로 분석 | 추가 예정 | 진행 예정 |
+| TT-NN custom operator | 추가 예정 | 진행 예정 |
+| TT-Metalium custom kernel | 추가 예정 | 진행 예정 |
+
+## 실행 경로
+
+### TTML Training
+
+```text
+Application / Model
+  → TTML / tt-train
+  → Autograd / Optimizer
+  → TTNN
+  → TT-Metal
+  → P100a
+```
+
+### TT-XLA Compilation
 
 ```text
 PyTorch
-  → TT-XLA / graph capture
-  → TT-MLIR lowering
-  → TT-NN operators
-  → TT-Metalium kernel
-  → Tensix cores / SRAM / NoC
+  → Torch-XLA
+  → StableHLO
+  → TT-MLIR
+  → TTNN / TT-Metal
+  → P100a
 ```
 
-## 첫 번째 대상
+두 경로를 분리해서 기록하고, 최종적으로 동일하거나 유사한 모델의 실행 결과와 개발 난이도를 비교합니다.
 
-ResNet-18 또는 작은 Transformer를 사용합니다.
-
-## 필수 비교
+## 핵심 분석 항목
 
 - PyTorch CPU/GPU baseline
-- TT-XLA 실행 결과
-- TT-NN port
-- custom Metalium operator
+- TTML training correctness
+- TT-XLA compile 및 실행 결과
+- TT-NN operator coverage
+- custom TT-Metalium operator/kernel
 - 정확도 오차와 compile time
-- inference latency
+- training/inference latency
 - SRAM/DRAM traffic
 - core utilization
 
-성능 수치는 측정 조건과 함께 기록하며 서로 다른 precision의 이론 성능을 직접 동일시하지 않습니다.
+## 진행 원칙
+
+- 실행 환경과 software stack 버전을 반드시 기록합니다.
+- 성공 로그뿐 아니라 빌드 및 런타임 오류 해결 과정도 남깁니다.
+- 서로 다른 precision의 이론 성능을 직접 동일시하지 않습니다.
+- 정확도와 수치 일치 여부를 확인한 뒤 성능을 비교합니다.
