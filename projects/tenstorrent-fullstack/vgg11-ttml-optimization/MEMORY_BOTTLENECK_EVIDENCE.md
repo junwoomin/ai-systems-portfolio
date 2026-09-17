@@ -6,7 +6,21 @@ VGG11 최적화 과정에서 측정한 메모리 이동 대역폭을 정리하�
 
 ## 1. 측정 출처와 범위
 
-사용자가 P100a 환경에서 측정해 공유한 결과입니다. 이 문서를 작성하는 환경에서 하드웨어 재측정은 수행하지 않았습니다. 원본 benchmark 코드, 전체 로그, software commit과 반복 측정 통계는 아직 이 문서에 첨부되지 않았습니다.
+사용자가 P100a 환경에서 측정해 공유한 결과입니다. 이 문서를 작성하는 환경에서 하드웨어 재측정은 수행하지 않았습니다. benchmark 소스는 저장소에 추가했으며, 전체 원본 로그, software commit과 반복 측정 통계는 아직 첨부되지 않았습니다.
+
+벤치마크 코드: [benchmarks/p100a-bandwidth](benchmarks/p100a-bandwidth/README.md)
+
+```bash
+cd benchmarks/p100a-bandwidth
+python all_bandwidth.py \
+    --device-id 0 \
+    --l1-small-kb 16 \
+    --cpu-size-mb 512 \
+    --pcie-size-mb 256 \
+    --l1-size-mb 8 \
+    --repeat 10 \
+    --warmup 2
+```
 
 | 경로 | 보고된 payload 대역폭 | 측정 범위 / 조건 |
 |---|---:|---|
