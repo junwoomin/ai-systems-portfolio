@@ -77,7 +77,7 @@ class TTConv2d:
             ),
 
 
-            act_block_h_override=32,
+            act_block_h_override=0,
 
 
             enable_act_double_buffer=False,
