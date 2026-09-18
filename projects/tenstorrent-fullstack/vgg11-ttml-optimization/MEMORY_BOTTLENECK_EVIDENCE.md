@@ -1,5 +1,7 @@
 # P100a Memory Transfer Measurements and Bottleneck Hypotheses
 
+> 최종본 안내: 이 문서는 과거 실험 기록이다. 최종 첨부 소스는 Conv1 block 64, activation double buffering=True, Conv·Pool DRAM 출력 및 Conv1·2·4 HEIGHT_SHARDED를 사용한다. 최종 순전파 분리 측정 합계는 학습 6.11 ms, 검증 6.30 ms이며, 현재 설정과 측정 한계는 [README](README.md)를 기준으로 한다. 아래의 이전 ‘현재’ 설정은 당시 실험 시점을 의미한다.
+
 VGG11 최적화 과정에서 측정한 메모리 이동 대역폭과 병목 가설을 기록한다. 입력 변환과 host-to-device 전송이 기존 forward 측정 구간에 포함되어 있었음이 확인되었으며, 이를 분리한 뒤 약 10 ms/batch가 측정되었고, 레이어별 block 및 shard tuning 후 약 6.6 ms/batch까지 감소하였다.
 
 ## 측정 코드
