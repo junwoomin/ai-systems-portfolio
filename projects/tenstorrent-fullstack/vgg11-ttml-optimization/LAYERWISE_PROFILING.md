@@ -89,7 +89,24 @@ ttnn.Conv2dConfig(
 
 두 설정을 동시에 변경했으므로 7.3 → 6.6 ms를 block height 128 또는 추가 sharding 중 하나의 단독 효과로 해석할 수 없다. 이 변화는 입력 준비 및 host-to-device 전송을 타이머 밖에 둔 상태에서 측정되었으므로 이전의 18 → 10 ms 측정 경계 정정과도 구분된다.
 
-## HEIGHT_SHARDED의 효과
+## 후속 관찰: 출력 위치와 명시적 메모리 변환
+
+본 workload의 후속 실험에서는 불필요한 메모리 변환을 반복하지 않는 경우 L1 출력과 DRAM 출력 사이에 큰 지연시간 차이가 관찰되지 않았다. 반면 MaxPool 출력을 L1에 생성한 뒤 별도의 `to_memory_config(..., ttnn.DRAM_MEMORY_CONFIG)`로 DRAM으로 옮기는 경로에서는 추가 지연이 관찰되었다. 모든 중간 activation을 L1에 유지하려는 구성은 L1 용량 제약을 받았다.
+
+| 비교 항목 | 관찰 및 최종 선택 |
+|---|---|
+| L1 출력과 DRAM 출력 | 불필요한 변환이 없을 때 큰 성능 차이를 관찰하지 못함 |
+| MaxPool L1 출력 후 별도 DRAM 변환 | 명시적 변환을 추가한 경로에서 지연 증가 |
+| 전체 activation의 L1 유지 | 실험 구성에서 L1 공간 부족 |
+| 최종 구성 | Conv·MaxPool 호출에 DRAM 출력을 지정하고 후속의 별도 DRAM 변환 호출 제거 |
+
+이에 따라 최종 구현에서는 저장 위치를 일률적으로 L1으로 바꾸기보다, 필요한 출력 메모리 구성을 연산 호출에서 직접 지정하여 연산 사이의 불필요한 명시적 메모리 변환을 최소화하였다. 출력 DRAM 지정이 내부 L1 사용이나 모든 데이터 이동을 제거한다는 의미는 아니다.
+
+이 관찰은 해당 모델과 실행 구성에 한정된다. L1과 DRAM의 물리적 대역폭이 같다는 결론이나 L1 배치가 항상 불필요하다는 일반화는 지지하지 않는다. 별도 변환 경로의 지연에는 데이터 복사뿐 아니라 allocation, layout/shard 변환 및 dispatch 비용 등이 포함될 수 있으며 각각의 기여도는 확인하지 않았다.
+
+후속 비교의 조건별 수치와 반복 측정 로그는 제공되지 않았으므로 정성적 관찰로 기록한다. 기존 8.3 → 7.3 ms는 L1 및 sharding 등의 결합 설정 결과로 보존하며, 이를 L1 배치 단독 효과나 NoC 이동 감소의 증거로 해석하지 않는다.
+
+## HEIGHT_SHARDED 관련 가설과 해석 한계
 
 Conv1 입력은 큰 spatial dimension과 낮은 channel 수를 가진다. HEIGHT_SHARDED는 flattened activation의 height 방향을 여러 Tensix core에 나누고 각 shard를 해당 core의 L1에 배치한다. Conv1뿐 아니라 초기·중간 고해상도 구간의 Conv2와 Conv4에도 같은 shard 방향을 명시함으로써 자동 reshard 또는 interleaved tensor 재분배 비용을 줄일 가능성이 있다.
 
