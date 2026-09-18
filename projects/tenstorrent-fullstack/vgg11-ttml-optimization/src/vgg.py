@@ -26,6 +26,7 @@ class TTConv2d:
         stride=1,
         padding=1,
         conv_config=None,
+        memory_config=None,
     ):
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -80,6 +81,7 @@ class TTConv2d:
                 output_layout=ttnn.ROW_MAJOR_LAYOUT,
             )
         self.conv_config = conv_config
+        self.memory_config = memory_config
         self.weights_prepared = False
 
     def __call__(
@@ -108,6 +110,8 @@ class TTConv2d:
             conv_config=self.conv_config,
             return_output_dim=True,
         )
+        if self.memory_config is not None:
+            common_args["memory_config"] = self.memory_config
 
         if not self.weights_prepared:
             x, output_dim, prepared = ttnn.conv2d(
