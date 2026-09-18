@@ -1,6 +1,6 @@
 # P100a Memory Transfer Measurements and Bottleneck Hypotheses
 
-VGG11 최적화 과정에서 측정한 메모리 이동 대역폭과 병목 가설을 기록한다. 현재 근거는 작은 activation 한 번의 payload 복사만으로 수 ms의 latency 차이를 설명하기 어렵다는 점을 보여준다.
+VGG11 최적화 과정에서 측정한 메모리 이동 대역폭과 병목 가설을 기록한다. 입력 변환과 host-to-device 전송이 기존 forward 측정 구간에 포함되어 있었음이 확인되었으며, 이를 분리한 뒤 P100a device forward는 약 10 ms/batch로 측정되었다.
 
 ## 측정 코드
 
@@ -71,10 +71,13 @@ Conv config                : DRAM
 MaxPool config             : DRAM
 prepared weight/bias cache : 적용
 act_block_h_override       : 0
-steady-state forward       : 약 18 ms/batch
+입력 위치                  : P100a DRAM
+device-only forward        : 약 10 ms/batch
 ```
 
-48 KiB에서 두 config tensor를 L1_SMALL에 둔 구성도 약 18 ms였으므로, 현재 데이터는 L1_SMALL config 배치의 추가 성능 이점을 보여주지 않는다.
+이전 약 18 ms에는 NCHW → NHWC 변환, contiguous host copy, BF16 변환 및 CPU → P100a DRAM 전송이 포함되어 있었다. 해당 작업을 타이머 앞으로 이동하자 약 10 ms가 측정되었다. 관측된 약 8 ms는 host-side 입력 준비와 H2D 경로의 합이며, 순수 PCIe 전송 시간이나 커널 개선량으로 단정할 수 없다.
+
+48 KiB에서 두 config tensor를 L1_SMALL에 둔 구성도 이전 측정 경계에서 약 18 ms였으므로, 현재 데이터는 L1_SMALL config 배치의 추가 성능 이점을 보여주지 않는다.
 
 ## 현재 병목 가설
 
@@ -85,13 +88,13 @@ steady-state forward       : 약 18 ms/batch
 | 작은 L1_SMALL 예약의 압력 | 24 KiB all-L1 config에서 35 ms | allocator와 program configuration 비교 |
 | Config tensor 이동·관리 오버헤드 | DRAM config에서도 18 ms 유지 | 실제 allocation 및 이동 이벤트 확인 |
 | Activation spill 경계의 후속 비용 | sharded/interleaved 변환 경로 존재 | conversion과 다음 Conv를 포함한 경계 측정 |
-| Host 왕복 비용 | device 내부 이동보다 낮은 유효 대역폭 | forward 구간의 H2D/D2H 호출 확인 |
+| Host 입력 준비 및 H2D 비용 | 측정 경계 분리 후 18 → 10 ms | permute·cast·H2D 각각 개별 측정 |
 
 현재 결과는 “DRAM이 L1보다 빠르다”는 결론을 지지하지 않는다. Configuration tensor의 배치와 activation의 residency를 구분해야 한다.
 
 ## 다음 실험
 
-현재 18 ms 구성을 기준으로 batch, input, dtype, weight, program cache와 warm-up 조건을 고정한다.
+현재 10 ms device-only 구성을 기준으로 batch, input, dtype, weight, program cache와 warm-up 조건을 고정한다.
 
 - DRAM/DRAM config와 L1/L1 config를 동일 process에서 반복 비교
 - configuration tensor allocation과 data movement event 기록
