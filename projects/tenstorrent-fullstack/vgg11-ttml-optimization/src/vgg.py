@@ -25,6 +25,7 @@ class TTConv2d:
         kernel_size=3,
         stride=1,
         padding=1,
+        conv_config=None,
     ):
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -66,29 +67,19 @@ class TTConv2d:
             dtype=DTYPE,
         )
 
-        self.conv_config = ttnn.Conv2dConfig(
-            weights_dtype=DTYPE,
-
-
-            config_tensors_in_dram=True,
-
-            activation=ttnn.UnaryWithParam(
-                ttnn.UnaryOpType.RELU
-            ),
-
-
-            act_block_h_override=0,
-
-
-            enable_act_double_buffer=False,
-            enable_weights_double_buffer=True,
-
-
-            reshard_if_not_optimal=True,
-
-
-            output_layout=ttnn.ROW_MAJOR_LAYOUT,
-        )
+        if conv_config is None:
+            conv_config = ttnn.Conv2dConfig(
+                weights_dtype=DTYPE,
+                config_tensors_in_dram=True,
+                activation=ttnn.UnaryWithParam(ttnn.UnaryOpType.RELU),
+                act_block_h_override=0,
+                enable_act_double_buffer=False,
+                enable_weights_double_buffer=False,
+                reshard_if_not_optimal=False,
+                deallocate_activation=False,
+                output_layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+        self.conv_config = conv_config
         self.weights_prepared = False
 
     def __call__(
