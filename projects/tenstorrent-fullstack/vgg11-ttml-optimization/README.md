@@ -10,7 +10,8 @@ Tenstorrent P100a에서 VGG11의 TTNN/TTML 순전파 병목을 분리하고, pre
 | Prepared tensor 재사용 | weight/bias 준비 결과 캐시 | 약 21 ms/batch | 입력 변환·H2D 포함 |
 | Block height 자동 선택 | `act_block_h_override=0` | 약 18 ms/batch | 입력 변환·H2D 포함 |
 | 측정 경계 정정 | 입력 준비와 H2D를 타이머 밖으로 분리 | 약 10 ms/batch | P100a device forward |
-| Conv1 전용 block tuning | Conv1 `act_block_h_override=256`, 나머지 Conv 자동 선택 | **약 8.3 ms/batch** | P100a device forward |
+| Conv1 전용 block tuning | Conv1 `act_block_h_override=256`, 나머지 Conv 자동 선택 | 약 8.3 ms/batch | P100a device forward |
+| Conv1 shard tuning | Conv1 activation L1, `HEIGHT_SHARDED` | **약 7.3 ms/batch** | P100a device forward |
 
 18 ms와 10 ms의 차이인 약 8 ms는 다음 작업이 기존 측정 구간에 포함되어 있었음을 보여준다.
 
@@ -21,7 +22,7 @@ Tenstorrent P100a에서 VGG11의 TTNN/TTML 순전파 병목을 분리하고, pre
 
 따라서 **18 → 10 ms를 P100a 커널 자체의 44.4% 최적화로 해석하면 안 된다.** 모델과 커널은 동일하며, 측정 대상을 host-side 입력 준비가 포함된 호출 시간에서 device-resident forward로 정정한 결과이다.
 
-반면 동일한 device-only 측정 범위에서 Conv1의 block height를 자동 선택에서 256으로 조정한 **10 → 8.3 ms는 약 17%의 실행시간 감소**이다.
+반면 동일한 device-only 측정 범위에서 Conv1의 block height를 자동 선택에서 256으로 조정한 **10 → 8.3 ms는 약 17%의 실행시간 감소**이다. 이어서 Conv1 activation을 L1의 HEIGHT_SHARDED layout으로 배치하여 **8.3 → 7.3 ms, 약 12%를 추가로 감소**시켰다.
 
 ## 현재 입력 경로
 
@@ -74,7 +75,9 @@ conv1_config = ttnn.Conv2dConfig(
     reshard_if_not_optimal=True,
     deallocate_activation=True,
     output_layout=ACTIVATION_LAYOUT,
+    shard_layout=ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
 )
+conv1_memory_config = ttnn.L1_MEMORY_CONFIG
 
 other_conv_config = ttnn.Conv2dConfig(
     weights_dtype=WEIGHT_DTYPE,
@@ -110,11 +113,11 @@ else:
     )
 ```
 
-`act_block_h_override=0`은 block height를 0으로 만드는 설정이 아니라 강제값을 해제하고 TTNN의 자동 선택을 사용하는 설정이다. 현재는 Conv1만 256으로 고정하고 Conv2–Conv8은 자동 선택을 사용한다.
+`act_block_h_override=0`은 block height를 0으로 만드는 설정이 아니라 강제값을 해제하고 TTNN의 자동 선택을 사용하는 설정이다. 현재는 Conv1만 256으로 고정하고 Conv2–Conv8은 자동 선택을 사용한다. Conv1에는 일반 L1의 HEIGHT_SHARDED activation 배치를 추가한다. 이는 configuration tensor 전용 L1_SMALL과 구분된다.
 
 ## 측정 범위
 
-현재 약 8.3 ms 측정 구간은 다음과 같다.
+현재 약 7.3 ms 측정 구간은 다음과 같다.
 
 ```text
 P100a DRAM의 입력 TTNN tensor
@@ -134,9 +137,9 @@ P100a DRAM의 입력 TTNN tensor
 - backward 및 optimizer step
 - metric 계산과 checkpoint 저장
 
-첫 Conv 호출의 weight/bias 준비 비용도 warm-up 이후 steady-state 8.3 ms에는 포함되지 않는다.
+첫 Conv 호출의 weight/bias 준비 비용도 warm-up 이후 steady-state 7.3 ms에는 포함되지 않는다.
 
-전체 응용 지연시간을 평가할 때는 device forward 8.3 ms만 보고하면 안 된다. 별도로 end-to-end batch latency와 입력 준비/H2D latency를 함께 보고해야 한다.
+전체 응용 지연시간을 평가할 때는 device forward 7.3 ms만 보고하면 안 된다. 별도로 end-to-end batch latency와 입력 준비/H2D latency를 함께 보고해야 한다.
 
 ## Config tensor 배치 해석
 
