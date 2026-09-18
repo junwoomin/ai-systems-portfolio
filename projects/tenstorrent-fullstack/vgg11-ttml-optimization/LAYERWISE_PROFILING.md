@@ -1,5 +1,7 @@
 # Layer-wise Profiling, Conv1 Block and Shard Tuning
 
+> 최종본 안내: 이 문서는 과거 실험 기록이다. 최종 첨부 소스는 Conv1 block 64, activation double buffering=True, Conv·Pool DRAM 출력 및 Conv1·2·4 HEIGHT_SHARDED를 사용한다. 최종 순전파 분리 측정 합계는 학습 6.11 ms, 검증 6.30 ms이며, 현재 설정과 측정 한계는 [README](README.md)를 기준으로 한다. 아래의 이전 ‘현재’ 설정은 당시 실험 시점을 의미한다.
+
 P100a에서 VGG11의 device-resident forward를 레이어 단위로 동기화하여 병목을 확인하고, 레이어별 Conv2D configuration을 조정한 실험을 기록한다.
 
 ## 레이어별 측정 결과
