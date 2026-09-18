@@ -53,6 +53,17 @@ def run_epoch(backbone, classifier, loader, optimizer, context, training):
         )
         targets.set_requires_grad(False)
 
+        batch_size = images.shape[0]
+        images = images.permute(0, 2, 3, 1).contiguous()
+        images = images.to(torch.bfloat16)
+        x = ttnn.from_torch(
+            images,
+            dtype=ttnn.bfloat16,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            device=context.get_device(),
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+
         if training:
             optimizer.zero_grad()
 
@@ -61,7 +72,7 @@ def run_epoch(backbone, classifier, loader, optimizer, context, training):
             ttnn.synchronize_device(context.get_device())
             model_start = time.perf_counter()
 
-        features = backbone(images)
+        features = backbone(x, batch_size)
         outputs = classifier(features)
 
         if step > WARMUP_BATCHES:
