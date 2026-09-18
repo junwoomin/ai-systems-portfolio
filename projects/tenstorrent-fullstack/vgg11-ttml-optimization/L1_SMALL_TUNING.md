@@ -20,7 +20,7 @@ config_tensor_in_dram = True
 
 ## 관측 결과
 
-각 결과는 실험 이력이며, 모든 행이 완전히 동일한 실행 세션에서 측정된 것은 아니다. 아래 결과는 입력 변환과 host-to-device 전송이 `FrozenVGG11.__call__()` 내부에 있던 이전 측정 경계에서 얻은 값이다. 현재의 약 10 ms device-only forward와 직접 비교하지 않는다.
+각 결과는 실험 이력이며, 모든 행이 완전히 동일한 실행 세션에서 측정된 것은 아니다. 아래 결과는 입력 변환과 host-to-device 전송이 `FrozenVGG11.__call__()` 내부에 있던 이전 측정 경계에서 얻은 값이다. 이후의 10 ms 이하 device-only forward 결과와 직접 비교하지 않는다.
 
 | `l1_small_size` | Conv config | MaxPool config | Prepared weight/bias | Block height | Latency |
 |---:|---|---|---|---|---:|
@@ -84,7 +84,7 @@ ttnn.max_pool2d(
 관측 차이                                    ≈  8 ms
 ```
 
-이는 L1_SMALL 변경에 따른 추가 개선이 아니라 측정 범위의 정정이다. L1_SMALL 실험을 재평가하려면 모든 조건에서 동일하게 입력 TTNN tensor를 미리 P100a DRAM에 배치한 뒤 device forward만 측정해야 한다.
+이는 L1_SMALL 변경에 따른 추가 개선이 아니라 측정 범위의 정정이다. 이후 Conv1 block tuning으로 약 8.3 ms, 일반 L1의 HEIGHT_SHARDED activation 배치로 약 7.3 ms가 측정되었다. 여기서 일반 L1 activation과 configuration tensor용 L1_SMALL은 서로 다른 설정이다. L1_SMALL 실험을 재평가하려면 모든 조건에서 동일하게 입력 TTNN tensor를 미리 P100a DRAM에 배치한 뒤 device forward만 측정해야 한다.
 
 ## 추가 검증
 
