@@ -52,22 +52,13 @@ class FrozenVGG11:
                                          dtype=ttnn.bfloat16)
             self.layers.append(layer)
 
-    def __call__(self, images):
-        batch = images.shape[0]
-        if tuple(images.shape[1:]) != (3, self.image_size, self.image_size):
-            raise ValueError("Expected normalized NCHW images matching image_size")
-                                                          
-        images = images.permute(0, 2, 3, 1).contiguous()
-        images = images.to(torch.bfloat16)
-        x = ttnn.from_torch(
-            images, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT,
-        )
+    def __call__(self, x, batch):
         h = w = self.image_size
         for i, layer in enumerate(self.layers):
             x, h, w = layer(x, batch, h, w)
             if i in self.pool_after:
                 x, h, w = tt_max_pool(x, batch, h, w, self.channels[i + 1])
-                                     
+
         x = ttnn.reshape(x, (1, 1, batch, self.out_features))
         x = ttnn.to_layout(x, ttnn.TILE_LAYOUT)
         return ttml.autograd.create_tensor(x, requires_grad=False)
