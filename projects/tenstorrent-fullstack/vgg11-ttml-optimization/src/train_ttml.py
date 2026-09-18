@@ -1,5 +1,3 @@
-
-
 import random
 import time
 from pathlib import Path
@@ -10,8 +8,8 @@ import ttnn
 import ttml
 
 from dataset import classification_loaders
+from vgg import ACTIVATION_DTYPE, ACTIVATION_LAYOUT
 from vgg_ttml import FrozenVGG11, VGGClassifier
-
 
 
 DATA_ROOT = "~/datasets/oxford_pet"
@@ -29,7 +27,30 @@ DEVICE_ID = 0
 WARMUP_BATCHES = 10
 
 
-def run_epoch(backbone, classifier, loader, optimizer, context, training):
+def find_power_sensor(device_id):
+
+    sensors = []
+    for hwmon in sorted(Path("/sys/class/hwmon").glob("hwmon*")):
+        try:
+            name = (hwmon / "name").read_text().strip().lower()
+        except OSError:
+            continue
+        if name in {"blackhole", "wormhole"}:
+            sensors.extend(sorted(hwmon.glob("power*_input")))
+    return sensors[device_id] if device_id < len(sensors) else None
+
+
+def read_power_watts(power_sensor):
+
+    if power_sensor is None:
+        return None
+    try:
+        return int(power_sensor.read_text().strip()) / 1_000_000
+    except (OSError, ValueError):
+        return None
+
+
+def run_epoch(backbone, classifier, loader, optimizer, context, training, power_sensor):
 
     if training:
         classifier.train()
@@ -42,9 +63,19 @@ def run_epoch(backbone, classifier, loader, optimizer, context, training):
     correct = 0
     sample_count = 0
 
-    model_time_sum = 0.0
+    backbone_time_sum = 0.0
+    classifier_time_sum = 0.0
+    power_sum = 0.0
+    power_count = 0
 
     for step, (images, labels) in enumerate(loader, start=1):
+        images = ttnn.from_torch(
+                    images,
+                    dtype=ACTIVATION_DTYPE,
+                    layout=ACTIVATION_LAYOUT,
+                    device=context.get_device(),
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                )
 
         targets = ttml.autograd.Tensor.from_numpy(
             labels.numpy().astype(np.uint32).reshape(1, -1),
@@ -53,31 +84,32 @@ def run_epoch(backbone, classifier, loader, optimizer, context, training):
         )
         targets.set_requires_grad(False)
 
-        batch_size = images.shape[0]
-        images = images.permute(0, 2, 3, 1).contiguous()
-        images = images.to(torch.bfloat16)
-        x = ttnn.from_torch(
-            images,
-            dtype=ttnn.bfloat16,
-            layout=ttnn.ROW_MAJOR_LAYOUT,
-            device=context.get_device(),
-            memory_config=ttnn.DRAM_MEMORY_CONFIG,
-        )
-
         if training:
             optimizer.zero_grad()
 
 
         if step > WARMUP_BATCHES:
             ttnn.synchronize_device(context.get_device())
-            model_start = time.perf_counter()
+            backbone_start = time.perf_counter()
 
-        features = backbone(x, batch_size)
+        features = backbone(images)
+
+        if step > WARMUP_BATCHES:
+
+            ttnn.synchronize_device(context.get_device())
+            backbone_time_sum += time.perf_counter() - backbone_start
+            classifier_start = time.perf_counter()
+
         outputs = classifier(features)
 
         if step > WARMUP_BATCHES:
             ttnn.synchronize_device(context.get_device())
-            model_time_sum += time.perf_counter() - model_start
+            classifier_time_sum += time.perf_counter() - classifier_start
+
+            power_watts = read_power_watts(power_sensor)
+            if power_watts is not None:
+                power_sum += power_watts
+                power_count += 1
 
         loss = ttml.ops.loss.cross_entropy_loss(outputs, targets)
 
@@ -105,10 +137,15 @@ def run_epoch(backbone, classifier, loader, optimizer, context, training):
                   f"acc {running_accuracy:.2%} | 워밍업 완료", flush=True)
         elif step > WARMUP_BATCHES and step % 10 == 0:
             measured_batches = step - WARMUP_BATCHES
-            average_batch_ms = model_time_sum / measured_batches * 1000
+            average_backbone_ms = backbone_time_sum / measured_batches * 1000
+            average_classifier_ms = classifier_time_sum / measured_batches * 1000
+            average_batch_ms = average_backbone_ms + average_classifier_ms
+            power_text = f" | 평균 전력 {power_sum / power_count:.1f} W" if power_count else ""
             print(f"배치 {step}/{len(loader)} | loss {loss_value:.4f} | "
                   f"acc {running_accuracy:.2%} | "
-                  f"평균 {average_batch_ms:.2f} ms/batch", flush=True)
+                  f"backbone {average_backbone_ms:.2f} ms | "
+                  f"classifier {average_classifier_ms:.2f} ms | "
+                  f"합계 {average_batch_ms:.2f} ms/batch{power_text}", flush=True)
 
     if sample_count == 0:
         raise ValueError("데이터가 없습니다.")
@@ -116,8 +153,13 @@ def run_epoch(backbone, classifier, loader, optimizer, context, training):
         raise ValueError(f"속도 측정에는 {WARMUP_BATCHES + 1}개 이상의 배치가 필요합니다.")
 
     measured_batches = step - WARMUP_BATCHES
-    average_batch_ms = model_time_sum / measured_batches * 1000
-    return loss_sum / sample_count, correct / sample_count, average_batch_ms
+    average_backbone_ms = backbone_time_sum / measured_batches * 1000
+    average_classifier_ms = classifier_time_sum / measured_batches * 1000
+    average_batch_ms = average_backbone_ms + average_classifier_ms
+    average_power = power_sum / power_count if power_count else None
+    return (loss_sum / sample_count, correct / sample_count,
+            average_backbone_ms, average_classifier_ms,
+            average_batch_ms, average_power)
 
 
 def main():
@@ -138,7 +180,13 @@ def main():
     context.set_seed(SEED)
     context.open_device(
         device_ids=[DEVICE_ID],
+        l1_small_size=0 * 1024,
     )
+    power_sensor = find_power_sensor(DEVICE_ID)
+    if power_sensor is None:
+        print("전력 센서를 찾지 못했습니다. 전력 표시는 생략합니다.")
+    else:
+        print(f"전력 센서: {power_sensor}")
 
     try:
 
@@ -159,17 +207,27 @@ def main():
         total_start = time.perf_counter()
         for epoch in range(1, EPOCHS + 1):
             print(f"\nEpoch {epoch}/{EPOCHS} — 학습", flush=True)
-            train_loss, train_acc, train_batch_ms = run_epoch(
-                backbone, classifier, train_loader, optimizer, context, training=True,
+            (train_loss, train_acc, train_backbone_ms, train_classifier_ms,
+             train_batch_ms, train_power) = run_epoch(
+                backbone, classifier, train_loader, optimizer, context,
+                training=True, power_sensor=power_sensor,
             )
             print("검증", flush=True)
-            val_loss, val_acc, val_batch_ms = run_epoch(
-                backbone, classifier, val_loader, optimizer, context, training=False,
+            (val_loss, val_acc, val_backbone_ms, val_classifier_ms,
+             val_batch_ms, val_power) = run_epoch(
+                backbone, classifier, val_loader, optimizer, context,
+                training=False, power_sensor=power_sensor,
             )
             print(f"학습: loss {train_loss:.4f}, 정확도 {train_acc:.2%}")
             print(f"검증: loss {val_loss:.4f}, 정확도 {val_acc:.2%}")
-            print(f"배치당 평균: 학습 {train_batch_ms:.2f} ms/batch | "
-                  f"검증 {val_batch_ms:.2f} ms/batch")
+            print(f"학습 배치당 평균: backbone {train_backbone_ms:.2f} ms | "
+                  f"classifier {train_classifier_ms:.2f} ms | "
+                  f"합계 {train_batch_ms:.2f} ms")
+            print(f"검증 배치당 평균: backbone {val_backbone_ms:.2f} ms | "
+                  f"classifier {val_classifier_ms:.2f} ms | "
+                  f"합계 {val_batch_ms:.2f} ms")
+            if train_power is not None and val_power is not None:
+                print(f"평균 전력: 학습 {train_power:.1f} W | 검증 {val_power:.1f} W")
 
             checkpoint = {
                 "classifier": classifier.cpu_state_dict(),
