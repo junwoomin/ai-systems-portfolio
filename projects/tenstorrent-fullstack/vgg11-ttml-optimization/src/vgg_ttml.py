@@ -38,7 +38,23 @@ class FrozenVGG11:
         self.state = {}
                                           
         for i, index in enumerate(self.conv_indices):
-            layer = TTConv2d(self.channels[i], self.channels[i + 1], device)
+            conv_config = ttnn.Conv2dConfig(
+                weights_dtype=ttnn.bfloat16,
+                config_tensors_in_dram=True,
+                activation=ttnn.UnaryWithParam(ttnn.UnaryOpType.RELU),
+                act_block_h_override=256 if i == 0 else 0,
+                enable_act_double_buffer=False,
+                enable_weights_double_buffer=False,
+                reshard_if_not_optimal=i == 0,
+                deallocate_activation=i == 0,
+                output_layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+            layer = TTConv2d(
+                self.channels[i],
+                self.channels[i + 1],
+                device,
+                conv_config=conv_config,
+            )
             prefix = f"features.{index}"
             weight = state[f"{prefix}.weight"].detach().cpu().contiguous()
             bias = state[f"{prefix}.bias"].detach().cpu().contiguous()
