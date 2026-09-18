@@ -2,18 +2,15 @@ import math
 import torch
 import ttnn
 
+from dtype_config import MODEL_TORCH_DTYPE, get_ttnn_dtype, get_ttnn_layout
 
 
-
-
-
-BATCH_SIZE = 8
-IMAGE_SIZE = 112
-NUM_CLASSES = 37
-DTYPE = ttnn.bfloat16
-
-
-
+ACTIVATION_DTYPE = get_ttnn_dtype(ttnn, "activation")
+WEIGHT_DTYPE = get_ttnn_dtype(ttnn, "weight")
+CLASSIFIER_DTYPE = get_ttnn_dtype(ttnn, "classifier")
+HOST_DTYPE = get_ttnn_dtype(ttnn, "host")
+ACTIVATION_LAYOUT = get_ttnn_layout(ttnn)
+DEFAULT_CONV_ACTIVATION = ttnn.UnaryWithParam(ttnn.UnaryOpType.RELU)
 
 
 class TTConv2d:
@@ -25,8 +22,19 @@ class TTConv2d:
         kernel_size=3,
         stride=1,
         padding=1,
-        conv_config=None,
-        memory_config=None,
+        weights_dtype=WEIGHT_DTYPE,
+        activation=DEFAULT_CONV_ACTIVATION,
+        act_block_h_override=0,
+        enable_act_double_buffer=False,
+        enable_weights_double_buffer=False,
+        reshard_if_not_optimal=False,
+        deallocate_activation=False,
+        output_layout=ACTIVATION_LAYOUT,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        activation_dtype=ACTIVATION_DTYPE,
+        dilation=(1, 1),
+        groups=1,
+        shard_layout=None,
     ):
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -42,7 +50,7 @@ class TTConv2d:
             in_channels,
             kernel_size,
             kernel_size,
-            dtype=torch.bfloat16,
+            dtype=MODEL_TORCH_DTYPE,
         )
 
         fan_in = in_channels * kernel_size * kernel_size
@@ -55,80 +63,83 @@ class TTConv2d:
 
         bias = torch.zeros(
             (1, 1, 1, out_channels),
-            dtype=torch.bfloat16,
+            dtype=MODEL_TORCH_DTYPE,
         )
 
         self.weight = ttnn.from_torch(
             weight,
-            dtype=DTYPE,
+
+            dtype=HOST_DTYPE,
         )
 
         self.bias = ttnn.from_torch(
             bias,
-            dtype=DTYPE,
+            dtype=HOST_DTYPE,
         )
 
-        if conv_config is None:
-            conv_config = ttnn.Conv2dConfig(
-                weights_dtype=DTYPE,
-                config_tensors_in_dram=True,
-                activation=ttnn.UnaryWithParam(ttnn.UnaryOpType.RELU),
-                act_block_h_override=0,
-                enable_act_double_buffer=False,
-                enable_weights_double_buffer=False,
-                reshard_if_not_optimal=False,
-                deallocate_activation=False,
-                output_layout=ttnn.ROW_MAJOR_LAYOUT,
-            )
-        self.conv_config = conv_config
-        self.memory_config = memory_config
+        self.conv_config = ttnn.Conv2dConfig(
+            weights_dtype=weights_dtype,
+            activation=activation,
+
+            act_block_h_override=act_block_h_override,
+            enable_act_double_buffer=enable_act_double_buffer,
+            enable_weights_double_buffer=enable_weights_double_buffer,
+            reshard_if_not_optimal=reshard_if_not_optimal,
+
+            deallocate_activation=deallocate_activation,
+            output_layout=output_layout,
+            shard_layout=shard_layout,
+            config_tensors_in_dram=True,
+
+        )
         self.weights_prepared = False
 
-    def __call__(
-        self,
-        x,
-        batch_size,
-        height,
-        width,
-    ):
-        common_args = dict(
-            input_tensor=x,
-            weight_tensor=self.weight,
-            bias_tensor=self.bias,
+
+        self.common_args = dict(
             device=self.device,
             in_channels=self.in_channels,
             out_channels=self.out_channels,
-            batch_size=batch_size,
-            input_height=height,
-            input_width=width,
             kernel_size=(self.kernel_size, self.kernel_size),
             stride=(self.stride, self.stride),
             padding=(self.padding, self.padding),
-            dilation=(1, 1),
-            groups=1,
-            dtype=DTYPE,
+            dilation=dilation,
+            groups=groups,
+            dtype=activation_dtype,
             conv_config=self.conv_config,
             return_output_dim=True,
+            memory_config=memory_config,
         )
-        if self.memory_config is not None:
-            common_args["memory_config"] = self.memory_config
 
+    def __call__(self, x, batch_size, height, width):
         if not self.weights_prepared:
             x, output_dim, prepared = ttnn.conv2d(
-                **common_args,
+                input_tensor=x,
+                weight_tensor=self.weight,
+                bias_tensor=self.bias,
+                batch_size=batch_size,
+                input_height=height,
+                input_width=width,
+                **self.common_args,
                 return_weights_and_bias=True,
+
             )
+
             self.weight, self.bias = prepared
             self.weights_prepared = True
+
         else:
             x, output_dim = ttnn.conv2d(
-                **common_args,
+                input_tensor=x,
+                weight_tensor=self.weight,
+                bias_tensor=self.bias,
+                batch_size=batch_size,
+                input_height=height,
+                input_width=width,
+                **self.common_args,
                 return_weights_and_bias=False,
             )
 
         return x, output_dim[0], output_dim[1]
-
-
 
 
 def tt_max_pool(
@@ -141,51 +152,31 @@ def tt_max_pool(
 
     x = ttnn.max_pool2d(
         input_tensor=x,
-
         batch_size=batch_size,
-
         input_h=height,
         input_w=width,
-
         channels=channels,
-
         kernel_size=[2, 2],
         stride=[2, 2],
         padding=[0, 0],
         dilation=[1, 1],
-
         ceil_mode=False,
 
-
         config_tensor_in_dram=True,
-
-
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
         applied_shard_scheme=None,
 
-        dtype=DTYPE,
+        deallocate_input=False,
 
-        output_layout=ttnn.ROW_MAJOR_LAYOUT,
+        dtype=ACTIVATION_DTYPE,
+        output_layout=ACTIVATION_LAYOUT,
     )
 
     height = height // 2
     width = width // 2
 
 
-
-
-
-
-
-
-    x = ttnn.to_memory_config(
-        x,
-        ttnn.DRAM_MEMORY_CONFIG,
-    )
-
     return x, height, width
-
-
-
 
 
 class TTLinear:
@@ -202,16 +193,10 @@ class TTLinear:
         self.device = device
         self.relu = relu
 
-
-
-
-
-
-
         weight = torch.empty(
             in_features,
             out_features,
-            dtype=torch.bfloat16,
+            dtype=MODEL_TORCH_DTYPE,
         )
 
         bound = math.sqrt(2.0 / in_features)
@@ -223,20 +208,20 @@ class TTLinear:
 
         bias = torch.zeros(
             (1, 1, 1, out_features),
-            dtype=torch.bfloat16,
+            dtype=MODEL_TORCH_DTYPE,
         )
 
         self.weight = ttnn.from_torch(
             weight,
             device=device,
-            dtype=DTYPE,
+            dtype=WEIGHT_DTYPE,
             layout=ttnn.TILE_LAYOUT,
         )
 
         self.bias = ttnn.from_torch(
             bias,
             device=device,
-            dtype=DTYPE,
+            dtype=ACTIVATION_DTYPE,
             layout=ttnn.TILE_LAYOUT,
         )
 
@@ -246,7 +231,7 @@ class TTLinear:
             x,
             self.weight,
             bias=self.bias,
-            dtype=DTYPE,
+            dtype=ACTIVATION_DTYPE,
         )
 
         if self.relu:
@@ -267,9 +252,6 @@ class TTVGG11:
         self.device = device
         self.image_size = image_size
         self.num_classes = num_classes
-
-
-
 
 
         self.conv1 = TTConv2d(
@@ -321,9 +303,6 @@ class TTVGG11:
         )
 
 
-
-
-
         final_size = image_size
 
         for _ in range(5):
@@ -348,9 +327,6 @@ class TTVGG11:
         )
 
 
-
-
-
         self.fc1 = TTLinear(
             flatten_size,
             4096,
@@ -373,9 +349,6 @@ class TTVGG11:
         )
 
 
-
-
-
     def __call__(
         self,
         x,
@@ -384,12 +357,6 @@ class TTVGG11:
 
         h = self.image_size
         w = self.image_size
-
-
-
-
-
-
 
 
         x, h, w = self.conv1(
@@ -418,12 +385,6 @@ class TTVGG11:
         )
 
 
-
-
-
-
-
-
         x, h, w = self.conv2(
             x,
             batch_size,
@@ -448,13 +409,6 @@ class TTVGG11:
             f"pool2 : "
             f"{h} x {w} x 128"
         )
-
-
-
-
-
-
-
 
 
         x, h, w = self.conv3(
@@ -490,13 +444,6 @@ class TTVGG11:
         )
 
 
-
-
-
-
-
-
-
         x, h, w = self.conv5(
             x,
             batch_size,
@@ -528,13 +475,6 @@ class TTVGG11:
             f"pool4 : "
             f"{h} x {w} x 512"
         )
-
-
-
-
-
-
-
 
 
         x, h, w = self.conv7(
@@ -570,15 +510,6 @@ class TTVGG11:
         )
 
 
-
-
-
-
-
-
-
-
-
         flatten_size = (
             h
             * w
@@ -607,9 +538,6 @@ class TTVGG11:
         )
 
 
-
-
-
         x = self.fc1(x)
 
         print(
@@ -632,4 +560,3 @@ class TTVGG11:
         )
 
         return x
-
