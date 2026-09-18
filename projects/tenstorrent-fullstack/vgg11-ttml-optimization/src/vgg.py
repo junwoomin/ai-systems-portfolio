@@ -70,7 +70,7 @@ class TTConv2d:
             weights_dtype=DTYPE,
 
 
-            config_tensors_in_dram=False,
+            config_tensors_in_dram=True,
 
             activation=ttnn.UnaryWithParam(
                 ttnn.UnaryOpType.RELU
@@ -162,7 +162,7 @@ def tt_max_pool(
         ceil_mode=False,
 
 
-        config_tensor_in_dram=False,
+        config_tensor_in_dram=True,
 
 
         applied_shard_scheme=None,
