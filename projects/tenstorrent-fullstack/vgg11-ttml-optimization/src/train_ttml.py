@@ -127,7 +127,6 @@ def main():
     context.set_seed(SEED)
     context.open_device(
         device_ids=[DEVICE_ID],
-        l1_small_size=48 * 1024,
     )
 
     try:
