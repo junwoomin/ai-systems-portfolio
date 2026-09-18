@@ -9,7 +9,7 @@ P100a에서 모델 실행과 학습을 검증하고, compiler·runtime·operator
 | P100a 구조 및 소프트웨어 스택 학습 문서 | [study](study/README.md) | 하드웨어·컴파일러·런타임 정리 완료 |
 | P100a TTML / tt-train 소스 빌드 | [ttml-tt-train-build](ttml-tt-train-build/README.md) | 빌드 과정 기록 완료 |
 | P100a TTML L1_SMALL 설정 패치 | [ttml-l1-small-config](ttml-l1-small-config/README.md) | 소스 수정 및 실험 구성 완료 |
-| VGG11 TTML runtime 최적화 | [vgg11-ttml-optimization](vgg11-ttml-optimization/README.md) | prepared tensor·레이어별 block tuning 및 측정 경계 분리, device forward 약 8.3 ms |
+| VGG11 TTML runtime 최적화 | [vgg11-ttml-optimization](vgg11-ttml-optimization/README.md) | prepared tensor·레이어별 block tuning 및 측정 경계 분리, device forward 약 7.3 ms |
 | TTML 최소 학습 예제 | 추가 예정 | 진행 예정 |
 | TT-XLA 실행 경로 분석 | 추가 예정 | 진행 예정 |
 | TT-NN custom operator | 추가 예정 | 진행 예정 |
