@@ -42,14 +42,14 @@ class FrozenVGG11:
                 weights_dtype=ttnn.bfloat16,
                 config_tensors_in_dram=True,
                 activation=ttnn.UnaryWithParam(ttnn.UnaryOpType.RELU),
-                act_block_h_override=256 if i == 0 else 0,
+                act_block_h_override=128 if i == 0 else 0,
                 enable_act_double_buffer=False,
                 enable_weights_double_buffer=False,
                 reshard_if_not_optimal=i == 0,
                 deallocate_activation=i == 0,
                 output_layout=ttnn.ROW_MAJOR_LAYOUT,
             )
-            if i == 0:
+            if i in {0, 1, 3}:
                 conv_config_args["shard_layout"] = ttnn.TensorMemoryLayout.HEIGHT_SHARDED
             conv_config = ttnn.Conv2dConfig(**conv_config_args)
             layer = TTConv2d(
