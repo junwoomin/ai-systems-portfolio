@@ -1,6 +1,6 @@
 # P100a Memory Transfer Measurements and Bottleneck Hypotheses
 
-VGG11 최적화 과정에서 측정한 메모리 이동 대역폭과 병목 가설을 기록한다. 입력 변환과 host-to-device 전송이 기존 forward 측정 구간에 포함되어 있었음이 확인되었으며, 이를 분리한 뒤 약 10 ms/batch가 측정되었고, Conv1 block 및 shard tuning 후 약 7.3 ms/batch까지 감소하였다.
+VGG11 최적화 과정에서 측정한 메모리 이동 대역폭과 병목 가설을 기록한다. 입력 변환과 host-to-device 전송이 기존 forward 측정 구간에 포함되어 있었음이 확인되었으며, 이를 분리한 뒤 약 10 ms/batch가 측정되었고, 레이어별 block 및 shard tuning 후 약 6.6 ms/batch까지 감소하였다.
 
 ## 측정 코드
 
@@ -70,14 +70,15 @@ l1_small_size              : 기본값 0
 Conv config                : DRAM
 MaxPool config             : DRAM
 prepared weight/bias cache : 적용
-Conv1 act_block_h_override : 256
+Conv1 act_block_h_override : 128
 Conv2–Conv8 block height   : 자동 선택
-Conv1 activation           : L1, HEIGHT_SHARDED
+HEIGHT_SHARDED             : Conv1, Conv2, Conv4
+Conv1 activation           : L1
 입력 위치                  : P100a DRAM
-device-only forward        : 약 7.3 ms/batch
+device-only forward        : 약 6.6 ms/batch
 ```
 
-이전 약 18 ms에는 NCHW → NHWC 변환, contiguous host copy, BF16 변환 및 CPU → P100a DRAM 전송이 포함되어 있었다. 해당 작업을 타이머 앞으로 이동하자 약 10 ms가 측정되었다. 관측된 약 8 ms는 host-side 입력 준비와 H2D 경로의 합이며, 순수 PCIe 전송 시간이나 커널 개선량으로 단정할 수 없다. 이후 동일한 device-only 범위에서 Conv1 block tuning으로 약 8.3 ms, Conv1 L1 HEIGHT_SHARDED 배치로 약 7.3 ms가 측정되었다.
+이전 약 18 ms에는 NCHW → NHWC 변환, contiguous host copy, BF16 변환 및 CPU → P100a DRAM 전송이 포함되어 있었다. 해당 작업을 타이머 앞으로 이동하자 약 10 ms가 측정되었다. 관측된 약 8 ms는 host-side 입력 준비와 H2D 경로의 합이며, 순수 PCIe 전송 시간이나 커널 개선량으로 단정할 수 없다. 이후 동일한 device-only 범위에서 Conv1 block tuning으로 약 8.3 ms, Conv1 L1 HEIGHT_SHARDED 배치로 약 7.3 ms가 측정되었다. Conv1 block height 128과 Conv1·Conv2·Conv4 HEIGHT_SHARDED를 함께 적용한 구성은 약 6.6 ms를 기록하였다.
 
 48 KiB에서 두 config tensor를 L1_SMALL에 둔 구성도 이전 측정 경계에서 약 18 ms였으므로, 현재 데이터는 L1_SMALL config 배치의 추가 성능 이점을 보여주지 않는다.
 
@@ -90,6 +91,7 @@ device-only forward        : 약 7.3 ms/batch
 | 작은 L1_SMALL 예약의 압력 | 24 KiB all-L1 config에서 35 ms | allocator와 program configuration 비교 |
 | Config tensor 이동·관리 오버헤드 | DRAM config에서도 18 ms 유지 | 실제 allocation 및 이동 이벤트 확인 |
 | Conv1 activation 배치 | L1 HEIGHT_SHARDED 적용 후 8.3 → 7.3 ms | Conv1과 MaxPool1을 분리 프로파일링 |
+| 레이어별 shard 확대 | Conv1 block 128 및 Conv1·2·4 HEIGHT_SHARDED에서 7.3 → 6.6 ms | 두 변경을 분리한 ablation |
 | Activation spill 경계의 후속 비용 | sharded/interleaved 변환 경로 존재 | conversion과 다음 Conv를 포함한 경계 측정 |
 | Host 입력 준비 및 H2D 비용 | 측정 경계 분리 후 18 → 10 ms | permute·cast·H2D 각각 개별 측정 |
 
@@ -97,7 +99,7 @@ device-only forward        : 약 7.3 ms/batch
 
 ## 다음 실험
 
-현재 7.3 ms device-only 구성을 기준으로 batch, input, dtype, weight, program cache와 warm-up 조건을 고정한다.
+현재 6.6 ms device-only 구성을 기준으로 batch, input, dtype, weight, program cache와 warm-up 조건을 고정한다.
 
 - DRAM/DRAM config와 L1/L1 config를 동일 process에서 반복 비교
 - configuration tensor allocation과 data movement event 기록
