@@ -48,12 +48,14 @@ class FrozenVGG11:
                 reshard_if_not_optimal=i == 0,
                 deallocate_activation=i == 0,
                 output_layout=ttnn.ROW_MAJOR_LAYOUT,
+                shard_layout=ttnn.TensorMemoryLayout.HEIGHT_SHARDED if i == 0 else None,
             )
             layer = TTConv2d(
                 self.channels[i],
                 self.channels[i + 1],
                 device,
                 conv_config=conv_config,
+                memory_config=ttnn.L1_MEMORY_CONFIG if i == 0 else None,
             )
             prefix = f"features.{index}"
             weight = state[f"{prefix}.weight"].detach().cpu().contiguous()
