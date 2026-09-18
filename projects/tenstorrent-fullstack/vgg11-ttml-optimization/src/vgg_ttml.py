@@ -38,7 +38,7 @@ class FrozenVGG11:
         self.state = {}
                                           
         for i, index in enumerate(self.conv_indices):
-            conv_config = ttnn.Conv2dConfig(
+            conv_config_args = dict(
                 weights_dtype=ttnn.bfloat16,
                 config_tensors_in_dram=True,
                 activation=ttnn.UnaryWithParam(ttnn.UnaryOpType.RELU),
@@ -48,8 +48,10 @@ class FrozenVGG11:
                 reshard_if_not_optimal=i == 0,
                 deallocate_activation=i == 0,
                 output_layout=ttnn.ROW_MAJOR_LAYOUT,
-                shard_layout=ttnn.TensorMemoryLayout.HEIGHT_SHARDED if i == 0 else None,
             )
+            if i == 0:
+                conv_config_args["shard_layout"] = ttnn.TensorMemoryLayout.HEIGHT_SHARDED
+            conv_config = ttnn.Conv2dConfig(**conv_config_args)
             layer = TTConv2d(
                 self.channels[i],
                 self.channels[i + 1],
