@@ -4,6 +4,23 @@
 
 VGG11 최적화 과정에서 측정한 메모리 이동 대역폭과 병목 가설을 기록한다. 입력 변환과 host-to-device 전송이 기존 forward 측정 구간에 포함되어 있었음이 확인되었으며, 이를 분리한 뒤 약 10 ms/batch가 측정되었고, 레이어별 block 및 shard tuning 후 약 6.6 ms/batch까지 감소하였다.
 
+## 후속 관찰: 출력 위치와 명시적 메모리 변환
+
+본 workload의 후속 실험에서는 불필요한 메모리 변환을 반복하지 않는 경우 L1 출력과 DRAM 출력 사이에 큰 지연시간 차이가 관찰되지 않았다. 반면 MaxPool 출력을 L1에 생성한 뒤 별도의 `to_memory_config(..., ttnn.DRAM_MEMORY_CONFIG)`로 DRAM으로 옮기는 경로에서는 추가 지연이 관찰되었다. 모든 중간 activation을 L1에 유지하려는 구성은 L1 용량 제약을 받았다.
+
+| 비교 항목 | 관찰 및 최종 선택 |
+|---|---|
+| L1 출력과 DRAM 출력 | 불필요한 변환이 없을 때 큰 성능 차이를 관찰하지 못함 |
+| MaxPool L1 출력 후 별도 DRAM 변환 | 명시적 변환을 추가한 경로에서 지연 증가 |
+| 전체 activation의 L1 유지 | 실험 구성에서 L1 공간 부족 |
+| 최종 구성 | Conv·MaxPool 호출에 DRAM 출력을 지정하고 후속의 별도 DRAM 변환 호출 제거 |
+
+이에 따라 최종 구현에서는 저장 위치를 일률적으로 L1으로 바꾸기보다, 필요한 출력 메모리 구성을 연산 호출에서 직접 지정하여 연산 사이의 불필요한 명시적 메모리 변환을 최소화하였다. 출력 DRAM 지정이 내부 L1 사용이나 모든 데이터 이동을 제거한다는 의미는 아니다.
+
+이 관찰은 해당 모델과 실행 구성에 한정된다. L1과 DRAM의 물리적 대역폭이 같다는 결론이나 L1 배치가 항상 불필요하다는 일반화는 지지하지 않는다. 별도 변환 경로의 지연에는 데이터 복사뿐 아니라 allocation, layout/shard 변환 및 dispatch 비용 등이 포함될 수 있으며 각각의 기여도는 확인하지 않았다.
+
+후속 비교의 조건별 수치와 반복 측정 로그는 제공되지 않았으므로 정성적 관찰로 기록한다. 기존 8.3 → 7.3 ms는 L1 및 sharding 등의 결합 설정 결과로 보존하며, 이를 L1 배치 단독 효과나 NoC 이동 감소의 증거로 해석하지 않는다.
+
 ## 측정 코드
 
 [P100a Bandwidth Benchmark](benchmarks/p100a-bandwidth/README.md)
@@ -92,7 +109,7 @@ device-only forward        : 약 6.6 ms/batch
 | 고정 block height 비효율 | override 32 → 0에서 21 → 18 ms | 실제 선택값과 layer별 kernel 시간 |
 | 작은 L1_SMALL 예약의 압력 | 24 KiB all-L1 config에서 35 ms | allocator와 program configuration 비교 |
 | Config tensor 이동·관리 오버헤드 | DRAM config에서도 18 ms 유지 | 실제 allocation 및 이동 이벤트 확인 |
-| Conv1 activation 배치 | L1 HEIGHT_SHARDED 적용 후 8.3 → 7.3 ms | Conv1과 MaxPool1을 분리 프로파일링 |
+| Conv1 결합 설정 | L1 및 HEIGHT_SHARDED 적용 후 8.3 → 7.3 ms; L1 단독 효과 미확인 | 출력 위치와 shard 설정을 분리 비교 |
 | 레이어별 shard 확대 | Conv1 block 128 및 Conv1·2·4 HEIGHT_SHARDED에서 7.3 → 6.6 ms | 두 변경을 분리한 ablation |
 | Activation spill 경계의 후속 비용 | sharded/interleaved 변환 경로 존재 | conversion과 다음 Conv를 포함한 경계 측정 |
 | Host 입력 준비 및 H2D 비용 | 측정 경계 분리 후 18 → 10 ms | permute·cast·H2D 각각 개별 측정 |
