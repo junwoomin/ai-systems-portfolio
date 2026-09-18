@@ -28,7 +28,7 @@ class ClassificationDataTest(unittest.TestCase):
             self.assertEqual(len(names), 2)
             self.assertEqual([len(labels) for _, labels in train], [3, 3, 2])
             images, labels = next(iter(val))
-            self.assertEqual(tuple(images.shape), (2, 3, 32, 32))
+            self.assertEqual(tuple(images.shape), (2, 32, 32, 3))
             self.assertEqual(labels.dtype, torch.int64)
             self.assertTrue(torch.isfinite(images).all())
             _, repeated_val, _ = classification_loaders(root, image_size=32, batch_size=3)
